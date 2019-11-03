@@ -59,8 +59,6 @@
 
 static int fp2_init(fp2_t a, BN_CTX *ctx)
 {
-	a[0] = NULL;
-	a[1] = NULL;
 	a[0] = BN_CTX_get(ctx);
 	a[1] = BN_CTX_get(ctx);
 	/*
@@ -75,10 +73,6 @@ static int fp2_init(fp2_t a, BN_CTX *ctx)
 
 static void fp2_cleanup(fp2_t a)
 {
-	BN_free(a[0]);
-	BN_free(a[1]);
-	a[0] = NULL;
-	a[1] = NULL;
 }
 
 static void fp2_clear_cleanup(fp2_t a)
@@ -193,10 +187,10 @@ static int fp2_add_word(fp2_t r, const fp2_t a, unsigned long b, const BIGNUM *p
 }
 #endif
 
-static int fp2_add(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_CTX *ctx)
+static int fp2_add(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p)
 {
-	return BN_mod_add(r[0], a[0], b[0], p, ctx)
-		&& BN_mod_add(r[1], a[1], b[1], p, ctx);
+	return BN_mod_add_quick(r[0], a[0], b[0], p)
+		&& BN_mod_add_quick(r[1], a[1], b[1], p);
 }
 
 static int fp2_dbl(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
@@ -210,7 +204,7 @@ static int fp2_tri(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
 	fp2_t t;
 	if (!fp2_init(t, ctx)
 		|| !fp2_dbl(t, a, p, ctx)
-		|| !fp2_add(r, t, a, p, ctx)) {
+		|| !fp2_add(r, t, a, p)) {
 		fp2_cleanup(t);
 		return 0;
 	}
@@ -513,7 +507,7 @@ static int fp2_test(const BIGNUM *p, BN_CTX *ctx)
 	fp2_set_hex(a, _a);
 	fp2_set_hex(b, _b);
 
-	fp2_add(r, a, b, p, ctx);
+	fp2_add(r, a, b, p);
 	ok = fp2_equ_hex(r, add_a_b, ctx);
 	printf("fp2 test %d: %s\n", __LINE__, ok ? "ok" : "error");
 
@@ -707,8 +701,8 @@ static int fp4_from_bin(fp4_t a, const unsigned char from[128])
 
 static int fp4_add(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_CTX *ctx)
 {
-	return fp2_add(r[0], a[0], b[0], p, ctx)
-		&& fp2_add(r[1], a[1], b[1], p, ctx);
+	return fp2_add(r[0], a[0], b[0], p)
+		&& fp2_add(r[1], a[1], b[1], p);
 }
 
 static int fp4_dbl(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
@@ -740,12 +734,12 @@ static int fp4_mul(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_CT
 		/* r0 = a0 * b0 + a1 * b1 * u */
 		|| !fp2_mul(r0, a[0], b[0], p, ctx)
 		|| !fp2_mul_u(t, a[1], b[1], p, ctx)
-		|| !fp2_add(r0, r0, t, p, ctx)
+		|| !fp2_add(r0, r0, t, p)
 
 		/* r[1] = a[0] * b[1] + a[1] * b[0] */
 		|| !fp2_mul(r1, a[0], b[1], p, ctx)
 		|| !fp2_mul(t, a[1], b[0], p, ctx)
-		|| !fp2_add(r1, r1, t, p, ctx)
+		|| !fp2_add(r1, r1, t, p)
 
 		|| !fp2_copy(r[0], r0)
 		|| !fp2_copy(r[1], r1)) {
@@ -769,12 +763,12 @@ static int fp4_mul_v(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_
 		/* r0 = a0 * b1 * u + a1 * b0 * u */
 		|| !fp2_mul_u(r0, a[0], b[1], p, ctx)
 		|| !fp2_mul_u(t, a[1], b[0], p, ctx)
-		|| !fp2_add(r0, r0, t, p, ctx)
+		|| !fp2_add(r0, r0, t, p)
 
 		/* r1 = a0 * b0 + a1 * b1 * u */
 		|| !fp2_mul(r1, a[0], b[0], p, ctx)
 		|| !fp2_mul_u(t, a[1], b[1], p, ctx)
-		|| !fp2_add(r1, r1, t, p, ctx)
+		|| !fp2_add(r1, r1, t, p)
 
 		|| !fp2_copy(r[0], r0)
 		|| !fp2_copy(r[1], r1)) {
@@ -798,7 +792,7 @@ static int fp4_sqr(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
 		/* r0 = a0^2 + a1^2 * u */
 		|| !fp2_sqr(r0, a[0], p, ctx)
 		|| !fp2_sqr_u(t, a[1], p, ctx)
-		|| !fp2_add(r0, r0, t, p, ctx)
+		|| !fp2_add(r0, r0, t, p)
 		/* r1 = 2 * (a0 * a1) */
 		|| !fp2_mul(r1, a[0], a[1], p, ctx)
 		|| !fp2_dbl(r1, r1, p, ctx)
@@ -828,7 +822,7 @@ static int fp4_sqr_v(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
 		/* r1 = a0^2 + a1^2 * u */
 		|| !fp2_sqr(r1, a[0], p, ctx)
 		|| !fp2_sqr_u(t, a[1], p, ctx)
-		|| !fp2_add(r1, r1, t, p, ctx)
+		|| !fp2_add(r1, r1, t, p)
 		|| !fp2_copy(r[0], r0)
 		|| !fp2_copy(r[1], r1)) {
 		fp2_cleanup(r0);
@@ -1979,7 +1973,7 @@ int point_is_on_curve(point_t *P, const BIGNUM *p, BN_CTX *ctx)
 		/* x^3 + 5 * u */
 		|| !fp2_sqr(t, x, p, ctx)
 		|| !fp2_mul(x, x, t, p, ctx)
-		|| !fp2_add(x, x, b, p, ctx)
+		|| !fp2_add(x, x, b, p)
 		/* y^2 */
 		|| !fp2_sqr(y, y, p, ctx)) {
 		r = 0;
@@ -2122,7 +2116,7 @@ int point_add(point_t *R, const point_t *P, const point_t *Q, const BIGNUM *p, B
 
 	if (!point_get_affine_coordinates(P, x1, y1)
 		|| !point_get_affine_coordinates(Q, x2, y2)
-		|| !fp2_add(t, y1, y2, p, ctx)) {
+		|| !fp2_add(t, y1, y2, p)) {
 		goto end;
 	}
 
