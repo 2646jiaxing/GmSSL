@@ -281,86 +281,59 @@ static int fp2_mul_u(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_
 }
 static int fp2_mul_num(fp2_t r, const fp2_t a, const BIGNUM *n, const BIGNUM *p, BN_CTX *ctx)
 {
-	BIGNUM *r0 = NULL;
-	BIGNUM *r1 = NULL;
-	if (!(r0 = BN_CTX_get(ctx))
-		|| !(r1 = BN_CTX_get(ctx))
-
-		|| !BN_mod_mul(r0, a[0], n, p, ctx)
-		|| !BN_mod_mul(r1, a[1], n, p, ctx)
-
-		|| !BN_copy(r[0], r0)
-		|| !BN_copy(r[1], r1)) {
-		BN_free(r0);
-		BN_free(r1);
+	if (!BN_mod_mul(r[0], a[0], n, p, ctx)
+		|| !BN_mod_mul(r[1], a[1], n, p, ctx)) {
 		return 0;
 	}
-	BN_free(r0);
-	BN_free(r1);
 	return 1;
 }
 
 static int fp2_sqr(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
 {
-	BIGNUM *r0 = NULL;
-	BIGNUM *r1 = NULL;
-	BIGNUM *t = NULL;
-	if (!(r0 = BN_CTX_get(ctx))
-		|| !(r1 = BN_CTX_get(ctx))
-		||!(t = BN_CTX_get(ctx))
-		/* r0 = a0^2 - 2 * a1^2 */
-		|| !BN_mod_sqr(r0, a[0], p, ctx)
-		|| !BN_mod_sqr(t, a[1], p, ctx)
-		|| !BN_mod_add(t, t, t, p, ctx)
-		|| !BN_mod_sub(r0, r0, t, p, ctx)
-
-		/* r1 = 2 * a0 * a1 */
-		|| !BN_mod_mul(r1, a[0], a[1], p, ctx)
-		|| !BN_mod_add(r1, r1, r1, p, ctx)
-		|| !BN_copy(r[0], r0)
-		|| !BN_copy(r[1], r1)) {
-		BN_free(r0);
-		BN_free(r1);
-		BN_free(t);
-		return 0;
-	}
-	BN_free(r0);
-	BN_free(r1);
-	BN_free(t);
-	return 1;
+    BIGNUM *r0, *r1;
+    BN_CTX_start(ctx);
+    
+    if (!(r0 = BN_CTX_get(ctx))
+        || !(r1 = BN_CTX_get(ctx))
+        
+        /* r0 = a0^2 - 2 * a1^2, r1 = 2 * a0 * a1 */
+        || !BN_mod_sqr(r0, a[0], p, ctx)
+        || !BN_mod_sqr(r1, a[1], p, ctx)
+        || !BN_mod_lshift1_quick(r1, r1, p)
+        || !BN_mod_mul(r[1], a[0], a[1], p, ctx)
+        || !BN_mod_lshift1_quick(r[1], r[1], p)
+        || !BN_mod_sub_quick(r[0], r0, r1, p)) {
+        
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
 }
 
 static int fp2_sqr_u(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
 {
-	BIGNUM *r0 = NULL;
-	BIGNUM *r1 = NULL;
-	BIGNUM *t = NULL;
-	if (!(r0 = BN_CTX_get(ctx))
-		|| !(r1 = BN_CTX_get(ctx))
-		|| !(t = BN_CTX_get(ctx))
-		/* r0 = -4 * a0 * a1 */
-		|| !BN_mod_mul(r0, a[0], a[1], p, ctx)
-		|| !BN_mod_add(r0, r0, r0, p, ctx)
-		|| !BN_mod_add(r0, r0, r0, p, ctx)
-		|| !BN_mod_sub(r0, p, r0, p, ctx)
-
-		/* r1 = a0^2 - 2 * a1^2 */
-		|| !BN_mod_sqr(r1, a[0], p, ctx)
-		|| !BN_mod_sqr(t, a[1], p, ctx)
-		|| !BN_mod_add(t, t, t, p, ctx)
-		|| !BN_mod_sub(r1, r1, t, p, ctx)
-
-		|| !BN_copy(r[0], r0)
-		|| !BN_copy(r[1], r1)) {
-		BN_free(r0);
-		BN_free(r1);
-		BN_free(t);
-		return 0;
-	}
-	BN_free(r0);
-	BN_free(r1);
-	BN_free(t);
-	return 1;
+    BIGNUM *r0, *r1;
+    BN_CTX_start(ctx);
+    
+    if (!(r0 = BN_CTX_get(ctx))
+        || !(r1 = BN_CTX_get(ctx))
+        
+        /* r1 = a0^2 - 2 * a1^2, r0 = -4 * a0 * a1 */
+        || !BN_mod_sqr(r1, a[0], p, ctx)
+        || !BN_mod_sqr(r0, a[1], p, ctx)
+        || !BN_mod_lshift1_quick(r0, r0, p)
+        || !BN_mod_mul(r[0], a[0], a[1], p, ctx)
+        || !BN_mod_lshift1_quick(r[0], r[0], p)
+        || !BN_mod_lshift1_quick(r[0], r[0], p)
+        || !BN_sub(r[0], p, r[0])
+        || !BN_mod_sub_quick(r[1], r1, r0, p)) {
+        
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
 }
 
 static int fp2_inv(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
