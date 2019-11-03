@@ -226,72 +226,59 @@ static int fp2_neg(fp2_t r, const fp2_t a, const BIGNUM *p)
 
 static int fp2_mul(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_CTX *ctx)
 {
-	BIGNUM *t = NULL;
-	BIGNUM *r0 = NULL;
-	BIGNUM *r1 = NULL;
-	if (!(t = BN_CTX_get(ctx))
-		|| !(r0 = BN_CTX_get(ctx))
-		|| !(r1 = BN_CTX_get(ctx))
+    BIGNUM *t, *r0, *r1;
+    BN_CTX_start(ctx);
+    
+    if (!(t = BN_CTX_get(ctx))
+        || !(r0 = BN_CTX_get(ctx))
+        || !(r1 = BN_CTX_get(ctx))
 
-		/* r0 = a0 * b0 - 2 * a1 * b1 */
-		|| !BN_mod_mul(r0, a[0], b[0], p, ctx)
-		|| !BN_mod_mul(t, a[1], b[1], p, ctx)
-		|| !BN_mod_add(t, t, t, p, ctx)
-		|| !BN_mod_sub(r0, r0, t, p, ctx)
-
-		/* r1 = a0 * b1 + a1 * b0 */
-		|| !BN_mod_mul(r1, a[0], b[1], p, ctx)
-		|| !BN_mod_mul(t, a[1], b[0], p, ctx)
-		|| !BN_mod_add(r1, r1, t, p, ctx)
-
-		|| !BN_copy(r[0], r0)
-		|| !BN_copy(r[1], r1)) {
-		BN_free(t);
-		BN_free(r0);
-		BN_free(r1);
-		return 0;
-	}
-	BN_free(t);
-	BN_free(r0);
-	BN_free(r1);
-	return 1;
+        /* r0 = a0 * b0 - 2 * a1 * b1, r1 = (a0 + a1) * (b0 + b1) - a0 * b0 - a1 * b1 */
+        || !BN_mod_add_quick(r0, a[0], a[1], p)
+        || !BN_mod_add_quick(r1, b[0], b[1], p)
+        || !BN_mod_mul(r1, r0, r1, p, ctx)
+        || !BN_mod_mul(r0, a[0], b[0], p, ctx)
+        || !BN_mod_sub_quick(r1, r1, r0, p)
+        || !BN_mod_mul(t, a[1], b[1], p, ctx)
+        || !BN_mod_sub_quick(r[1], r1, t, p)
+        || !BN_mod_lshift1_quick(t, t, p)
+        || !BN_mod_sub_quick(r[0], r0, t, p)) {
+        
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
 }
 
 static int fp2_mul_u(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_CTX *ctx)
 {
-	BIGNUM *r0 = NULL;
-	BIGNUM *r1 = NULL;
-	BIGNUM *t = NULL;
-	if (!(r0 = BN_CTX_get(ctx))
-		|| !(r1 = BN_CTX_get(ctx))
-		|| !(t = BN_CTX_get(ctx))
+    BIGNUM *r0, *r1, *t;
+    BN_CTX_start(ctx);
+    
+    if (!(r0 = BN_CTX_get(ctx))
+        || !(r1 = BN_CTX_get(ctx))
+        || !(t = BN_CTX_get(ctx))
 
-		/* r0 = -2 * (a0 * b1 + a1 * b0) */
-		|| !BN_mod_mul(r0, a[0], b[1], p, ctx)
-		|| !BN_mod_mul(t, a[1], b[0], p, ctx)
-		|| !BN_mod_add(r0, r0, t, p, ctx)
-		|| !BN_mod_add(r0, r0, r0, p, ctx)
-		|| !BN_mod_sub(r0, p, r0, p, ctx)
-
-		/* r1 = a0 * b0 - 2 * a1 * b1 */
-		|| !BN_mod_mul(r1, a[0], b[0], p, ctx)
-		|| !BN_mod_mul(t, a[1], b[1], p, ctx)
-		|| !BN_mod_add(t, t, t, p, ctx)
-		|| !BN_mod_sub(r1, r1, t, p, ctx)
-
-		|| !BN_copy(r[0], r0)
-		|| !BN_copy(r[1], r1)) {
-		BN_free(r0);
-		BN_free(r1);
-		BN_free(t);
-		return 0;
-	}
-	BN_free(r0);
-	BN_free(r1);
-	BN_free(t);
-	return 1;
+        /* r0 = -2 * (a0 * b1 + a1 * b0), r1 = a0 * b0 - 2 * a1 * b1 */
+        || !BN_mod_add_quick(r0, a[0], a[1], p)
+        || !BN_mod_add_quick(r1, b[0], b[1], p)
+        || !BN_mod_mul(r0, r0, r1, p, ctx)
+        || !BN_mod_mul(r1, a[0], b[0], p, ctx)
+        || !BN_mod_sub_quick(r0, r0, r1, p)
+        || !BN_mod_mul(t, a[1], b[1], p, ctx)
+        || !BN_mod_sub_quick(r0, r0, t, p)
+        || !BN_mod_lshift1_quick(t, t, p)
+        || !BN_mod_sub_quick(r[1], r1, t, p)
+        || !BN_mod_lshift1_quick(r0, r0, p)
+        || !BN_sub(r[0], p, r0)
+        ) {
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
 }
-
 static int fp2_mul_num(fp2_t r, const fp2_t a, const BIGNUM *n, const BIGNUM *p, BN_CTX *ctx)
 {
 	BIGNUM *r0 = NULL;
