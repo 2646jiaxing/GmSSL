@@ -342,9 +342,9 @@ static int fp2_inv(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
 		/* r0 = 0 */
 		BN_zero(r[0]);
 		/* r1 = -(2 * a1)^-1 */
-		if (!BN_mod_add(r[1], a[1], a[1], p, ctx)
+		if (!BN_mod_lshift1_quick(r[1], a[1], p)
 			|| !BN_mod_inverse(r[1], r[1], p, ctx)
-			|| !BN_mod_sub(r[1], p, r[1], p, ctx)) {
+			|| !BN_sub(r[1], p, r[1])) {
 			return 0;
 		}
 
@@ -357,31 +357,29 @@ static int fp2_inv(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
 		}
 
 	} else {
-		BIGNUM *k = NULL;
-		BIGNUM *t = NULL;
+        BIGNUM *k, *t;
+        BN_CTX_start(ctx);
+        
 		if (!(k = BN_CTX_get(ctx))
 			|| !(t = BN_CTX_get(ctx))
 
 			/* k = (a[0]^2 + 2 * a[1]^2)^-1 */
 			|| !BN_mod_sqr(k, a[0], p, ctx)
 			|| !BN_mod_sqr(t, a[1], p, ctx)
-			|| !BN_mod_add(t, t, t, p, ctx)
-			|| !BN_mod_add(k, k, t, p, ctx)
+			|| !BN_mod_lshift1_quick(t, t, p)
+			|| !BN_mod_add_quick(k, k, t, p)
 			|| !BN_mod_inverse(k, k, p, ctx)
 
 			/* r[0] = a[0] * k, r[1] = -a[1] * k */
 			|| !BN_mod_mul(r[0], a[0], k, p, ctx)
 			|| !BN_mod_mul(r[1], a[1], k, p, ctx)
-			|| !BN_mod_sub(r[1], p, r[1], p, ctx)) {
+			|| !BN_sub(r[1], p, r[1])) {
 
-			BN_free(k);
-			BN_free(t);
+            BN_CTX_end(ctx);
 			return 0;
 		}
-		BN_free(k);
-		BN_free(t);
+        BN_CTX_end(ctx);
 	}
-
 	return 1;
 }
 
