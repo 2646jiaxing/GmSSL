@@ -54,6 +54,7 @@
 #include <openssl/ec.h>
 #include <openssl/err.h>
 #include "sm9_lcl.h"
+#include <time.h>
 
 
 static int fp2_init(fp2_t a, BN_CTX *ctx)
@@ -2660,6 +2661,7 @@ int rate_pairing(fp12_t r, const point_t *Q, const EC_POINT *P, BN_CTX *ctx)
 	const BIGNUM *k;
 	BIGNUM *xP = NULL;
 	BIGNUM *yP = NULL;
+    double time0;
 
 	group = EC_GROUP_new_by_curve_name(NID_sm9bn256v1);
 	p = SM9_get0_prime();
@@ -2687,8 +2689,11 @@ int rate_pairing(fp12_t r, const point_t *Q, const EC_POINT *P, BN_CTX *ctx)
 			SM9_get0_generator2_x1(),
 			SM9_get0_generator2_y0(),
 			SM9_get0_generator2_y1());
-
+        
+        time0 = clock();
 		rate(r, &P2, xP, yP, a, k, p, ctx);
+        time0 = (clock() - time0) / CLOCKS_PER_SEC;
+        printf("pairing costs: %fs\n", time0);
 
 		point_cleanup(&P2);
 	} else {
