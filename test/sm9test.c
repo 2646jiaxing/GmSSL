@@ -390,6 +390,7 @@ static int sm9test_enc(const char *id, const unsigned char *data, size_t datalen
 		ERR_print_errors_fp(stderr);
 		goto end;
 	}
+    mlen = sizeof(mbuf);
 	if (!SM9_decrypt(NID_sm9encrypt_with_sm3_xor, cbuf, clen,
 		mbuf, &mlen, sk)) {
 		ERR_print_errors_fp(stderr);
