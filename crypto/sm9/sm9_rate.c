@@ -73,6 +73,10 @@ static int fp2_init(fp2_t a, BN_CTX *ctx)
 
 static void fp2_cleanup(fp2_t a)
 {
+    /*
+    BN_free(a[0]);
+    BN_free(a[1]);
+     */
 }
 
 static void fp2_clear_cleanup(fp2_t a)
@@ -1385,6 +1389,7 @@ int fp12_pow(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGNUM *p, BN_CTX 
 	int n, i;
 	fp12_t t;
 
+    BN_CTX_start(ctx);
 	fp12_init(t, ctx);
 
 	if (BN_is_zero(k)) {
@@ -1411,8 +1416,7 @@ int fp12_pow(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGNUM *p, BN_CTX 
 	}
 
 	fp12_copy(r, t);
-
-	fp12_cleanup(t);
+    BN_CTX_end(ctx);
 	return 1;
 }
 
@@ -1755,9 +1759,11 @@ int point_init(point_t *P, BN_CTX *ctx)
 
 void point_cleanup(point_t *P)
 {
+    /*
 	fp2_cleanup(P->X);
 	fp2_cleanup(P->Y);
 	fp2_cleanup(P->Z);
+     */
 }
 
 void point_print(const point_t *P)
@@ -1806,6 +1812,13 @@ int point_set_affine_coordinates(point_t *P, const fp2_t x, const fp2_t y)
 		&& fp2_set_one(P->Z);
 }
 
+int point_set_jacobian_coordinates(point_t *P, const fp2_t x, const fp2_t y, const fp2_t z)
+{
+    return fp2_copy(P->X, x)
+    && fp2_copy(P->Y, y)
+    && fp2_copy(P->Z, z);
+}
+
 int point_set_affine_coordinates_hex(point_t *P, const char *str[4])
 {
 	fp2_set_hex(P->X, str);
@@ -1835,6 +1848,13 @@ int point_get_affine_coordinates(const point_t *P, fp2_t x, fp2_t y)
 	return fp2_copy(x, P->X)
 		&& fp2_copy(y, P->Y)
 		&& fp2_is_one(P->Z);
+}
+
+int point_get_jacobian_coordinates(const point_t *P, fp2_t x, fp2_t y, fp2_t z)
+{
+    return fp2_copy(x, P->X)
+    && fp2_copy(y, P->Y)
+    && fp2_copy(z, P->Z);
 }
 
 int point_get_ext_affine_coordinates(const point_t *P, fp12_t x, fp12_t y, const BIGNUM *p, BN_CTX *ctx)
