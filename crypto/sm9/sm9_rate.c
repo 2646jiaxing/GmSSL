@@ -1243,43 +1243,38 @@ int fp12_mul(fp12_t r, const fp12_t a, const fp12_t b, const BIGNUM *p, BN_CTX *
 
 static int fp12_sqr(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 {
-	fp4_t r0, r1, r2, t;
+	fp4_t r0, r1, r2;
+    
+    BN_CTX_start(ctx);
 	fp4_init(r0, ctx);
 	fp4_init(r1, ctx);
 	fp4_init(r2, ctx);
-	if (!(fp4_init(t, ctx))
+	if (
 		/* r0 = a0^2 + 2*a1*a2*v */
-		|| !fp4_sqr(r0, a[0], p, ctx)
-		|| !fp4_mul_v(t, a[1], a[2], p, ctx)
-		|| !fp4_dbl(t, t, p)
-		|| !fp4_add(r0, r0, t, p)
+		!fp4_sqr(r0, a[0], p, ctx)
+		|| !fp4_mul_v(r1, a[1], a[2], p, ctx)
+		|| !fp4_dbl(r1, r1, p)
+		|| !fp4_add(r0, r0, r1, p)
 
 		/* r1 = 2*a0*a1 + a^2 * v */
 		|| !fp4_mul(r1, a[0], a[1], p, ctx)
 		|| !fp4_dbl(r1, r1, p)
-		|| !fp4_sqr_v(t, a[2], p, ctx)
-		|| !fp4_add(r1, r1, t, p)
-
-		/* r2 = 2*a0*a2 + a1^2*/
-		|| !fp4_mul(r2, a[0], a[2], p, ctx)
-		|| !fp4_dbl(r2, r2, p)
-		|| !fp4_sqr(t, a[1], p, ctx)
-		|| !fp4_add(r2, r2, t, p)
+		|| !fp4_sqr_v(r2, a[2], p, ctx)
+        || !fp4_add(r1, r1, r2, p)
+        
+        /* r2 = 2*a0*a2 + a1^2*/
+        || !fp4_mul(r2, a[0], a[2], p, ctx)
+        || !fp4_dbl(r2, r2, p)
+        || !fp4_sqr(r[2], a[1], p, ctx)
+        || !fp4_add(r[2], r2, r[2], p)
+		
 
 		|| !fp4_copy(r[0], r0)
-		|| !fp4_copy(r[1], r1)
-		|| !fp4_copy(r[2], r2)) {
-
-		fp4_cleanup(r0);
-		fp4_cleanup(r1);
-		fp4_cleanup(r2);
-		fp4_cleanup(t);
+        || !fp4_copy(r[1], r1)) {
+        BN_CTX_end(ctx);
 		return 0;
 	}
-	fp4_cleanup(r0);
-	fp4_cleanup(r1);
-	fp4_cleanup(r2);
-	fp4_cleanup(t);
+    BN_CTX_end(ctx);
 	return 1;
 }
 
@@ -1288,6 +1283,7 @@ static int fp12_inv(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 	if (fp4_is_zero(a[2])) {
 		fp4_t k;
 		fp4_t t;
+        BN_CTX_start(ctx);
 		if (!fp4_init(t, ctx)) {
 			return 0;
 		}
@@ -1320,18 +1316,16 @@ static int fp12_inv(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 			|| !fp4_mul(r[0], r[0], k, p, ctx)
 
 			) {
-
-			fp4_cleanup(k);
-			fp4_cleanup(t);
+            BN_CTX_end(ctx);
 			return 0;
 		}
-		fp4_cleanup(k);
-		fp4_cleanup(t);
+        BN_CTX_end(ctx);
 		return 1;
 
 	} else {
 
 		fp4_t t0, t1, t2, t3;
+        BN_CTX_start(ctx);
 
 		if (!(fp4_init(t0, ctx))
 			|| !(fp4_init(t1, ctx)) //FIXME
@@ -1370,20 +1364,12 @@ static int fp12_inv(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 			/* r2 = t0 * t3 */
 			|| !fp4_mul(r[2], t0, t3, p, ctx)
 			) {
-			fp4_cleanup(t0);
-			fp4_cleanup(t1);
-			fp4_cleanup(t2);
-			fp4_cleanup(t3);
+            BN_CTX_end(ctx);
 			return 0;
 		}
-
-		fp4_cleanup(t0);
-		fp4_cleanup(t1);
-		fp4_cleanup(t2);
-		fp4_cleanup(t3);
+        BN_CTX_end(ctx);
 		return 1;
 	}
-
 	return 1;
 }
 
