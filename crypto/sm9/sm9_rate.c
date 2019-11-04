@@ -528,17 +528,17 @@ static int fp4_init(fp4_t a, BN_CTX *ctx)
 	int r;
 	r = fp2_init(a[0], ctx);
 	r &= fp2_init(a[1], ctx);
-	if (!r) {
+	if (!r) {/*
 		fp2_cleanup(a[0]);
-		fp2_cleanup(a[1]);
+		fp2_cleanup(a[1]);*/
 	}
 	return r;
 }
 
 static void fp4_cleanup(fp4_t a)
-{
+{/*
 	fp2_cleanup(a[0]);
-	fp2_cleanup(a[1]);
+	fp2_cleanup(a[1]); */
 }
 
 #if SM9_TEST
@@ -684,31 +684,30 @@ static int fp4_neg(fp4_t r, const fp4_t a, const BIGNUM *p)
 static int fp4_mul(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_CTX *ctx)
 {
 	fp2_t r0, r1, t;
+    BN_CTX_start(ctx);
 
 	fp2_init(r0, ctx);
 	fp2_init(r1, ctx);
 
 	if (!fp2_init(t, ctx)
-		/* r0 = a0 * b0 + a1 * b1 * u */
-		|| !fp2_mul(r0, a[0], b[0], p, ctx)
-		|| !fp2_mul_u(t, a[1], b[1], p, ctx)
-		|| !fp2_add(r0, r0, t, p)
-
-		/* r[1] = a[0] * b[1] + a[1] * b[0] */
-		|| !fp2_mul(r1, a[0], b[1], p, ctx)
-		|| !fp2_mul(t, a[1], b[0], p, ctx)
-		|| !fp2_add(r1, r1, t, p)
-
-		|| !fp2_copy(r[0], r0)
-		|| !fp2_copy(r[1], r1)) {
-		fp2_cleanup(r0);
-		fp2_cleanup(r1);
-		fp2_cleanup(t);
+        
+		/* r0 = a0 * b0 + a1 * b1 * u, r[1] = a[0] * b[1] + a[1] * b[0] */
+		|| !fp2_add(r0, a[0], a[1], p)
+        || !fp2_add(r1, b[0], b[1], p)
+        || !fp2_mul(r1, r0, r1, p, ctx)
+        || !fp2_mul(r0, a[0], b[0], p, ctx)
+        || !fp2_sub(r1, r1, r0, p)
+        || !fp2_mul(t, a[1], b[1], p, ctx)
+        || !fp2_sub(r[1], r1, t, p)
+        || !BN_mod_lshift1_quick(r1[0], t[1], p)
+        || !BN_sub(r1[0], p, r1[0])
+        || !BN_copy(r1[1], t[0])
+        || !fp2_add(r[0], r0, r1, p)) {
+		
+        BN_CTX_end(ctx);
 		return 0;
 	}
-	fp2_cleanup(r0);
-	fp2_cleanup(r1);
-	fp2_cleanup(t);
+    BN_CTX_end(ctx);
 	return 1;
 }
 
@@ -743,27 +742,22 @@ static int fp4_mul_v(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_
 
 static int fp4_sqr(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
 {
-	fp2_t r0, r1, t;
+	fp2_t r0, r1;
+    BN_CTX_start(ctx);
+    
 	fp2_init(r0, ctx);
 	fp2_init(r1, ctx);
-	if (!fp2_init(t, ctx)
-		/* r0 = a0^2 + a1^2 * u */
-		|| !fp2_sqr(r0, a[0], p, ctx)
-		|| !fp2_sqr_u(t, a[1], p, ctx)
-		|| !fp2_add(r0, r0, t, p)
-		/* r1 = 2 * (a0 * a1) */
-		|| !fp2_mul(r1, a[0], a[1], p, ctx)
-		|| !fp2_dbl(r1, r1, p)
-		|| !fp2_copy(r[0], r0)
-		|| !fp2_copy(r[1], r1)) {
-		fp2_cleanup(r0);
-		fp2_cleanup(r1);
-		fp2_cleanup(t);
+	if (/* r0 = a0^2 + a1^2 * u, r1 = 2 * (a0 * a1) */
+        !fp2_sqr(r0, a[0], p, ctx)
+        || !fp2_sqr_u(r1, a[1], p, ctx)
+        || !fp2_mul(r[1], a[0], a[1], p, ctx)
+        || !fp2_dbl(r[1], r[1], p)
+        || !fp2_add(r[0], r0, r1, p)) {
+		
+        BN_CTX_end(ctx);
 		return 0;
 	}
-	fp2_cleanup(r0);
-	fp2_cleanup(r1);
-	fp2_cleanup(t);
+    BN_CTX_end(ctx);
 	return 1;
 }
 
