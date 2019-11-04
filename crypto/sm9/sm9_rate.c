@@ -743,6 +743,19 @@ static int fp4_mul_v(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_
 	return 1;
 }
 
+static int fp4_mul_v_only(fp4_t r, fp4_t a, const BIGNUM *p)
+{
+    if (!fp2_copy(a[1], r[0])
+        || !BN_copy(r[0][1], r[1][0])
+        || !BN_mod_lshift1_quick(a[0][0], r[1][1], p)
+        || !BN_sub(r[0][0], p, a[0][0])
+        || !fp2_copy(r[1], a[1])
+        ){
+        return 0;
+    }
+    return 1;
+}
+
 static int fp4_sqr(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
 {
 	fp2_t r0, r1;
@@ -957,19 +970,21 @@ int fp12_init(fp12_t a, BN_CTX *ctx)
 	r = fp4_init(a[0], ctx);
 	r &= fp4_init(a[1], ctx);
 	r &= fp4_init(a[2], ctx);
-	if (!r) {
+	if (!r) {/*
 		fp4_cleanup(a[0]);
 		fp4_cleanup(a[1]);
-		fp4_cleanup(a[2]);
+		fp4_cleanup(a[2]);*/
 	}
 	return r;
 }
 
 void fp12_cleanup(fp12_t a)
 {
+    /*
 	fp4_cleanup(a[0]);
 	fp4_cleanup(a[1]);
 	fp4_cleanup(a[2]);
+     */
 }
 
 #if SM9_TEST
@@ -1152,14 +1167,15 @@ static int fp12_dbl(fp12_t r, const fp12_t a, const BIGNUM *p)
 static int fp12_tri(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 {
 	fp12_t t;
+    BN_CTX_start(ctx);
 	fp12_init(t, ctx);
 
 	if (!fp12_dbl(t, a, p)
 		|| !fp12_add(r, t, a, p)) {
-		fp12_cleanup(t);
+        BN_CTX_end(ctx);
 		return 0;
 	}
-	fp12_cleanup(t);
+    BN_CTX_end(ctx);
 	return 1;
 }
 
@@ -1179,47 +1195,49 @@ static int fp12_neg(fp12_t r, const fp12_t a, const BIGNUM *p)
 
 int fp12_mul(fp12_t r, const fp12_t a, const fp12_t b, const BIGNUM *p, BN_CTX *ctx)
 {
-	fp4_t r0, r1, r2, t;
+	fp4_t r0, r1, r2, t0, t1, t2;
+    BN_CTX_start(ctx);
 	fp4_init(r0, ctx);
 	fp4_init(r1, ctx);
 	fp4_init(r2, ctx);
 
-	if (!fp4_init(t, ctx)
-		/* r0 = a0 * b0 + a1 * b2 * v + a2 * b1 * v */
-		|| !fp4_mul(r0, a[0], b[0], p, ctx)
-		|| !fp4_mul_v(t, a[1], b[2], p, ctx)
-		|| !fp4_add(r0, r0, t, p)
-		|| !fp4_mul_v(t, a[2], b[1], p, ctx)
-		|| !fp4_add(r0, r0, t, p)
+	if (!fp4_init(t0, ctx)
+        || !fp4_init(t1, ctx)
+        || !fp4_init(t2, ctx)
+		
+        || !fp4_mul(t0, a[0], b[0], p, ctx)
+        || !fp4_mul(t1, a[1], b[1], p, ctx)
+        || !fp4_mul(t2, a[2], b[2], p, ctx)
+        
+        || !fp4_add(r0, a[1], a[2], p)
+        || !fp4_add(r1, b[1], b[2], p)
+        || !fp4_mul(r0, r0, r1, p, ctx)
+        || !fp4_sub(r0, r0, t1, p)
+        || !fp4_sub(r0, r0, t2, p)
+        || !fp4_mul_v_only(r0, r1, p)
+        
+        || !fp4_add(r1, a[0], a[1], p)
+        || !fp4_add(r2, b[0], b[1], p)
+        || !fp4_mul(r1, r1, r2, p, ctx)
+        || !fp4_sub(r1, r1, t0, p)
+        || !fp4_sub(r[1], r1, t1, p)
+        
+        || !fp4_add(r2, a[0], a[2], p)
+        || !fp4_add(r1, b[0], b[2], p)
+        || !fp4_mul(r2, r1, r2, p, ctx)
+        || !fp4_sub(r2, r2, t0, p)
+        || !fp4_sub(r2, r2, t2, p)
+        || !fp4_add(r[2], r2, t1, p)
+        
+        || !fp4_add(r[0], r0, t0, p)
+        || !fp4_mul_v_only(t2, t0, p)
+        || !fp4_add(r[1], r[1], t2, p)
+        ) {
 
-		/* r1 = a0*b1 + a1*b0 + a2*b2*v */
-		|| !fp4_mul(r1, a[0], b[1], p, ctx)
-		|| !fp4_mul(t, a[1], b[0], p, ctx)
-		|| !fp4_add(r1, r1, t, p)
-		|| !fp4_mul_v(t, a[2], b[2], p, ctx)
-		|| !fp4_add(r1, r1, t, p)
-
-		/* r2 = a0*b2 + a1*b1 + a2*b0 */
-		|| !fp4_mul(r2, a[0], b[2], p, ctx)
-		|| !fp4_mul(t, a[1], b[1], p, ctx)
-		|| !fp4_add(r2, r2, t, p)
-		|| !fp4_mul(t, a[2], b[0], p, ctx)
-		|| !fp4_add(r2, r2, t, p)
-
-		|| !fp4_copy(r[0], r0)
-		|| !fp4_copy(r[1], r1)
-		|| !fp4_copy(r[2], r2)) {
-
-		fp4_cleanup(r0);
-		fp4_cleanup(r1);
-		fp4_cleanup(r2);
-		fp4_cleanup(t);
+        BN_CTX_end(ctx);
 		return 0;
 	}
-	fp4_cleanup(r0);
-	fp4_cleanup(r1);
-	fp4_cleanup(r2);
-	fp4_cleanup(t);
+    BN_CTX_end(ctx);
 	return 1;
 }
 
