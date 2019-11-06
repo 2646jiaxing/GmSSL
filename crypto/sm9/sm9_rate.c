@@ -69,6 +69,8 @@
 #define FRB_P2_21 "B640000002A3A6F0E303AB4FF2EB2052A9F02115CAEF75E70F738991676AF24A"
 
 
+
+
 static int fp2_init(fp2_t a, BN_CTX *ctx)
 {
 	a[0] = BN_CTX_get(ctx);
@@ -850,6 +852,15 @@ static int fp4_inv(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
 	return 1;
 }
 
+static int fp4_conj(fp4_t r, const fp4_t a, const BIGNUM *p)
+{
+    if (!fp2_copy(r[0], a[0])
+        || !fp2_neg(r[1], a[1], p)){
+        return 0;
+    }
+    return 1;
+}
+
 #if SM9_TEST
 static int fp4_test(const BIGNUM *p, BN_CTX *ctx)
 {
@@ -1439,6 +1450,64 @@ int fp12_pow(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGNUM *p, BN_CTX 
 	fp12_copy(r, t);
     BN_CTX_end(ctx);
 	return 1;
+}
+
+static int fp12_sqr_cyclotomic(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
+{
+    fp4_t t0, t1, t2;
+    BN_CTX_start(ctx);
+    fp4_init(t0, ctx);
+    fp4_init(t1, ctx);
+    fp4_init(t2, ctx);
+    
+    if (!fp4_sqr(t0, a[0], p, ctx)
+        || !fp4_dbl(t1, t0, p)
+        || !fp4_add(t0, t0, t1, p)
+        || !fp4_conj(t1, a[0], p)
+        || !fp4_dbl(t1, t1, p)
+        || !fp4_sub(r[0], t0, t1, p)
+        
+        || !fp4_sqr_v(t0, a[2], p, ctx)
+        || !fp4_dbl(t1, t0, p)
+        || !fp4_add(t0, t0, t1, p)
+        || !fp4_conj(t1, a[1], p)
+        || !fp4_dbl(t1, t1, p)
+        || !fp4_sqr(t2, a[1], p, ctx)
+        || !fp4_add(r[1], t0, t1, p)
+        
+        || !fp4_dbl(t0, t2, p)
+        || !fp4_add(t0, t0, t2, p)
+        || !fp4_conj(t1, a[2], p)
+        || !fp4_dbl(t1, t1, p)
+        || !fp4_sub(r[2], t0, t1, p)){
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
+}
+
+static int fp12_pow_cyclotomic_of_trace(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
+{
+    char trace[23] = "10110001111100110001010";
+    int i;
+    
+    if (!fp12_sqr_cyclotomic(r, a, p, ctx)
+        || !fp12_mul(r, r, a, p, ctx)){
+        return 0;
+    }
+    
+    for (i = 0; i < 38; i++){
+        fp12_sqr_cyclotomic(r, r, p, ctx);
+    }
+    
+    for (i = 0; i < 23; i++){
+        fp12_sqr_cyclotomic(r, r, p, ctx);
+        if (trace[i]){
+            fp12_mul(r, r, a, p, ctx);
+        }
+    }
+    return 1;
 }
 
 static int fp12_frobenius_p1(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
@@ -2595,6 +2664,28 @@ static int fast_final_expo(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGN
 	fp12_cleanup(t);
 	fp12_cleanup(t0);
 	return 1;
+}
+
+static int final_exp(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
+{
+    fp12_t m, t0, t1;
+    BN_CTX_start(ctx);
+    fp12_init(m, ctx);
+    fp12_init(t0, ctx);
+    fp12_init(t1, ctx);
+    
+    if (/* m = a^{(p^6-1)(p^2+1)} */
+        !fp12_inv(t0, a, p, ctx)
+        || !fp12_frobenius_p6(t1, a, p, ctx)
+        || !fp12_mul(t1, t1, t0, p, ctx)
+        || !fp12_frobenius_p2(m, t1, p, ctx)
+        || !fp12_mul(m, m, t1, p, ctx)
+        
+        
+        
+        
+        
+        )
 }
 
 static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
