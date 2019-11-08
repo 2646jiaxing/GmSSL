@@ -2610,7 +2610,7 @@ static int final_expo(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGNUM *p
 	return 1;
 }
 
-
+/*
 static int fast_final_expo(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGNUM *p, BN_CTX *ctx)
 {
 	int i, n;
@@ -2655,7 +2655,7 @@ static int fast_final_expo(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGN
 
 	n = BN_num_bits(k);
 	for (i = n - 2; i >= 0; i--) {
-		if (!fp12_sqr_cyclotomic(t, t, p, ctx)) {
+		if (!fp12_sqr(t, t, p, ctx)) {
 			return 0;
 		}
 		if (BN_is_bit_set(k, i)) {
@@ -2670,12 +2670,12 @@ static int fast_final_expo(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGN
 	fp12_cleanup(t0);
 	return 1;
 }
-
+*/
 
 static int final_exp(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 {
     fp12_t m, t0, t1, mx1, mx2, mx3;
-    //BN_CTX_start(ctx);
+    BN_CTX_start(ctx);
     fp12_init(m, ctx);
     fp12_init(t0, ctx);
     fp12_init(t1, ctx);
@@ -2683,59 +2683,64 @@ static int final_exp(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
     fp12_init(mx2, ctx);
     fp12_init(mx3, ctx);
 
-    /* m = a^{(p^6-1)(p^2+1)} */
-    fp12_inv(t0, a, p, ctx);
-    fp12_frobenius_p6(t1, a, p, ctx);
-    fp12_mul(t1, t1, t0, p, ctx);
-    fp12_frobenius_p2(m, t1, p, ctx);
-    fp12_mul(m, m, t1, p, ctx);
+    if (/* m = a^{(p^6-1)(p^2+1)} */
+        !fp12_inv(t0, a, p, ctx)
+        || !fp12_frobenius_p6(t1, a, p, ctx)
+        || !fp12_mul(t1, t1, t0, p, ctx)
+        || !fp12_frobenius_p2(m, t1, p, ctx)
+        || !fp12_mul(m, m, t1, p, ctx)
 
-    /* mx1 = m^x, mx2 = m^(x^2), mx3 = m^(x^3) */
-    fp12_pow_cyclotomic_of_x(mx1, m, p, ctx);
-    fp12_pow_cyclotomic_of_x(mx2, mx1, p, ctx);
-    fp12_pow_cyclotomic_of_x(mx3, mx2, p, ctx);
+        /* mx1 = m^x, mx2 = m^(x^2), mx3 = m^(x^3) */
+        || !fp12_pow_cyclotomic_of_x(mx1, m, p, ctx)
+        || !fp12_pow_cyclotomic_of_x(mx2, mx1, p, ctx)
+        || !fp12_pow_cyclotomic_of_x(mx3, mx2, p, ctx)
 
-    /* t1 = y6, t0 = y6^2 */
-    fp12_frobenius_p1(t1, mx3, p, ctx);
-    fp12_mul(t1, mx3, t1, p, ctx);
-    fp12_sqr_cyclotomic(t0, t1, p, ctx);
+        /* t1 = y6, t0 = y6^2 */
+        || !fp12_frobenius_p1(t1, mx3, p, ctx)
+        || !fp12_mul(t1, mx3, t1, p, ctx)
+        || !fp12_frobenius_p6(t1, t1, p, ctx)
+        || !fp12_sqr_cyclotomic(t0, t1, p, ctx)
 
-    /* t1 = y4, t0 = t0 * y4 */
-    fp12_frobenius_p1(t1, mx2, p, ctx);
-    fp12_frobenius_p6(t1, t1, p, ctx);
-    fp12_mul(t1, mx1, t1, p, ctx);
-    fp12_mul(t0, t0, t1, p, ctx);
+        /* t1 = y4, t0 = t0 * y4 */
+        || !fp12_frobenius_p1(t1, mx2, p, ctx)
+        || !fp12_mul(t1, mx1, t1, p, ctx)
+        || !fp12_frobenius_p6(t1, t1, p, ctx)
+        || !fp12_mul(t0, t0, t1, p, ctx)
 
-    /* t1 = y5, t0 = t0 * y5 */
-    fp12_frobenius_p6(t1, mx2, p, ctx);
-    fp12_mul(t0, t0, t1, p, ctx);
+        /* t1 = y5, t0 = t0 * y5 */
+        || !fp12_frobenius_p6(t1, mx2, p, ctx)
+        || !fp12_mul(t0, t0, t1, p, ctx)
 
-    /* mx3 = y3, t1 = y5 * y3, t1 = t1 * t0 */
-    fp12_frobenius_p1(mx3, mx1, p, ctx);
-    fp12_mul(t1, t1, mx3, p, ctx);
-    fp12_mul(t1, t1, t0, p, ctx);
+        /* mx3 = y3, t1 = y5 * y3, t1 = t1 * t0 */
+        || !fp12_frobenius_p1(mx3, mx1, p, ctx)
+        || !fp12_frobenius_p6(mx3, mx3, p, ctx)
+        || !fp12_mul(t1, t1, mx3, p, ctx)
+        || !fp12_mul(t1, t1, t0, p, ctx)
 
-    /* mx3 = y2 */
-    fp12_frobenius_p2(mx3, mx2, p, ctx);
-    fp12_mul(t0, t0, mx3, p, ctx);
-    fp12_sqr_cyclotomic(t1, t1, p, ctx);
-    fp12_mul(t1, t1, t0, p, ctx);
-    fp12_sqr_cyclotomic(t1, t1, p, ctx);
+        /* mx3 = y2 */
+        || !fp12_frobenius_p2(mx3, mx2, p, ctx)
+        || !fp12_mul(t0, t0, mx3, p, ctx)
+        || !fp12_sqr_cyclotomic(t1, t1, p, ctx)
+        || !fp12_mul(t1, t1, t0, p, ctx)
+        || !fp12_sqr_cyclotomic(t1, t1, p, ctx)
 
-    fp12_frobenius_p6(mx3, m, p, ctx);
-    fp12_mul(t0, t1, mx3, p, ctx);
+        || !fp12_frobenius_p6(mx3, m, p, ctx)
+        || !fp12_mul(t0, t1, mx3, p, ctx)
 
-    /* mx1 = m^p, mx2 = m^(p^2), mx3 = m^(p^3) */
-    fp12_frobenius_p1(mx1, m, p, ctx);
-    fp12_frobenius_p2(mx2, m, p, ctx);
-    fp12_frobenius_p1(mx3, mx2, p, ctx);
-    fp12_mul(t1, t1, mx1, p, ctx);
-    fp12_mul(t1, t1, mx2, p, ctx);
-    fp12_mul(t1, t1, mx3, p, ctx);
+        /* mx1 = m^p, mx2 = m^(p^2), mx3 = m^(p^3) */
+        || !fp12_frobenius_p1(mx1, m, p, ctx)
+        || !fp12_frobenius_p2(mx2, m, p, ctx)
+        || !fp12_frobenius_p1(mx3, mx2, p, ctx)
+        || !fp12_mul(t1, t1, mx1, p, ctx)
+        || !fp12_mul(t1, t1, mx2, p, ctx)
+        || !fp12_mul(t1, t1, mx3, p, ctx)
 
-    fp12_sqr_cyclotomic(t0, t0, p, ctx);
-    fp12_mul(r, t0, t1, p, ctx);
-    //BN_CTX_end(ctx);
+        || !fp12_sqr_cyclotomic(t0, t0, p, ctx)
+        || !fp12_mul(r, t0, t1, p, ctx)){
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
     return 1;
 }
 
@@ -2824,7 +2829,7 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 	final_expo(f, f, k, p, ctx);
 #else
 	/* f = ((f ^ (p^6-1)) ^ (p^2+1)) ^ [(p^4-p^2+1)/n] */
-	fast_final_expo(f, f, k, p, ctx);
+	final_exp(f, f, p, ctx);
 #endif
 
 	point_cleanup(&T);
