@@ -57,22 +57,6 @@
 #include <time.h>
 
 
-#define FRB_P1_01 "6C648DE5DC0A3F2CF55ACC93EE0BAF159F9D411806DC5177F5B21FD3DA24D011"
-#define FRB_P1_10 "3F23EA58E5720BDB843C6CFA9C08674947C5C86E0DDD04EDA91D8354377B698B"
-#define FRB_P1_11 "F300000002A3A6F2780272354F8B78F4D5FC11967BE65333"
-#define FRB_P1_20 "F300000002A3A6F2780272354F8B78F4D5FC11967BE65334"
-#define FRB_P1_21 "2D40A38CF6983351711E5F99520347CC57D778A9F8FF4C8A4C949C7FA2A96686"
-
-#define FRB_P2_10 "F300000002A3A6F2780272354F8B78F4D5FC11967BE65334"
-#define FRB_P2_11 "B640000002A3A6F0E303AB4FF2EB2052A9F02115CAEF75E70F738991676AF249"
-#define FRB_P2_20 "F300000002A3A6F2780272354F8B78F4D5FC11967BE65333"
-#define FRB_P2_21 "B640000002A3A6F0E303AB4FF2EB2052A9F02115CAEF75E70F738991676AF24A"
-
-#define INV_FRB_P1_DEN6 "B640000002A3A6F0E303AB4FF2EB2052A9F02115CAEF75E70F738991676AF24A"
-#define INV_FRB_P1_DEN4 "49DB721A269967C4E0A8DEBC0783182F82555233139E9D63EFBD7B54092C756C"
-#define INV_FRB_P2_DEN6 "B640000002A3A6F0E303AB4FF2EB2052A9F02115CAEF75E70F738991676AF249"
-
-
 static int fp2_init(fp2_t a, BN_CTX *ctx)
 {
 	a[0] = BN_CTX_get(ctx);
@@ -1519,61 +1503,63 @@ static int fp12_pow_cyclotomic_of_x(fp12_t r, const fp12_t a, const BIGNUM *p, B
 
 static int fp12_frobenius_p1(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 {
-    BIGNUM *frb_coef;
-    BN_CTX_start(ctx);
-    frb_coef = BN_CTX_get(ctx);
+	const BIGNUM *pw10;
+	const BIGNUM *pw11;
+	const BIGNUM *pw12;
+	const BIGNUM *pw13;
+	const BIGNUM *pw14;
+
+	pw10 = SM9_get0_fast_final_exponent_p10();
+	pw11 = SM9_get0_fast_final_exponent_p11();
+	pw12 = SM9_get0_fast_final_exponent_p12();
+	pw13 = SM9_get0_fast_final_exponent_p13();
+	pw14 = SM9_get0_fast_final_exponent_p14();
+
     if (!fp2_conj(r[0][0], a[0][0], p)
         
         || !fp2_conj(r[0][1], a[0][1], p)
-        || !BN_hex2bn(&frb_coef, FRB_P1_01)
-        || !fp2_mul_num(r[0][1], r[0][1], frb_coef, p, ctx)
+        || !fp2_mul_num(r[0][1], r[0][1], pw10, p, ctx)
         
         || !fp2_conj(r[1][0], a[1][0], p)
-        || !BN_hex2bn(&frb_coef, FRB_P1_10)
-        || !fp2_mul_num(r[1][0], r[1][0], frb_coef, p, ctx)
+        || !fp2_mul_num(r[1][0], r[1][0], pw11, p, ctx)
         
         || !fp2_conj(r[1][1], a[1][1], p)
-        || !BN_hex2bn(&frb_coef, FRB_P1_11)
-        || !fp2_mul_num(r[1][1], r[1][1], frb_coef, p, ctx)
+        || !fp2_mul_num(r[1][1], r[1][1], pw12, p, ctx)
         
         || !fp2_conj(r[2][0], a[2][0], p)
-        || !BN_hex2bn(&frb_coef, FRB_P1_20)
-        || !fp2_mul_num(r[2][0], r[2][0], frb_coef, p, ctx)
+        || !fp2_mul_num(r[2][0], r[2][0], pw13, p, ctx)
         
         || !fp2_conj(r[2][1], a[2][1], p)
-        || !BN_hex2bn(&frb_coef, FRB_P1_21)
-        || !fp2_mul_num(r[2][1], r[2][1], frb_coef, p, ctx)){
-        BN_CTX_end(ctx);
+        || !fp2_mul_num(r[2][1], r[2][1], pw14, p, ctx)){
         return 0;
     }
-    BN_CTX_end(ctx);
     return 1;
 }
 
+
+
+
 static int fp12_frobenius_p2(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 {
-    BIGNUM *frb_coef;
-    BN_CTX_start(ctx);
-    frb_coef = BN_CTX_get(ctx);
-    if (!fp2_copy(r[0][0], a[0][0])
-        || !fp2_neg(r[0][1], a[0][1], p)
-        
-        || !BN_hex2bn(&frb_coef, FRB_P2_10)
-        || !fp2_mul_num(r[1][0], a[1][0], frb_coef, p, ctx)
-        
-        || !BN_hex2bn(&frb_coef, FRB_P2_11)
-        || !fp2_mul_num(r[1][1], a[1][1], frb_coef, p, ctx)
-        
-        || !BN_hex2bn(&frb_coef, FRB_P2_20)
-        || !fp2_mul_num(r[2][0], a[2][0], frb_coef, p, ctx)
-        
-        || !BN_hex2bn(&frb_coef, FRB_P2_21)
-        || !fp2_mul_num(r[2][1], a[2][1], frb_coef, p, ctx)){
-        BN_CTX_end(ctx);
-        return 0;
-    }
-    BN_CTX_end(ctx);
-    return 1;
+    const BIGNUM *pw20;
+	const BIGNUM *pw21;
+	const BIGNUM *pw22;
+	const BIGNUM *pw23;
+	pw20 = SM9_get0_fast_final_exponent_p20();
+	pw21 = SM9_get0_fast_final_exponent_p21();
+	pw22 = SM9_get0_fast_final_exponent_p22();
+	pw23 = SM9_get0_fast_final_exponent_p23();
+
+	if(!fp2_copy(r[0][0], a[0][0])
+		|| !fp2_neg (r[0][1], a[0][1], p)
+		|| !fp2_mul_num(r[1][0], a[1][0], pw20, p, ctx)
+		|| !fp2_mul_num(r[1][1], a[1][1], pw21, p, ctx)
+		|| !fp2_mul_num(r[2][0], a[2][0], pw22, p, ctx)
+		|| !fp2_mul_num(r[2][1], a[2][1], pw23, p, ctx)) {
+
+		return 0;
+	}
+	return 1;
 }
 
 static int fp12_frobenius_p6(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
@@ -2555,7 +2541,7 @@ end:
 	return ret;
 }
 
-
+/*
 static int frobenius(point_t *R, const point_t *P, const BIGNUM *p, BN_CTX *ctx)
 {
     fp12_t x, y;
@@ -2572,8 +2558,6 @@ static int frobenius(point_t *R, const point_t *P, const BIGNUM *p, BN_CTX *ctx)
 
     point_set_ext_affine_coordinates(R, x, y, p, ctx);
 
-    point_print(R);
-    printf("========================\n");
     fp12_cleanup(x);
     fp12_cleanup(y);
     return 1;
@@ -2583,33 +2567,33 @@ static int frobenius_twice(point_t *R, const point_t *P, const BIGNUM *p, BN_CTX
 {
     frobenius(R, P, p, ctx);
     frobenius(R, R, p, ctx);
-    point_print(R);
     return 1;
 }
-
+*/
 
 static int frobenius_simultaneously(point_t *R1, point_t *R2, const point_t *P, const BIGNUM *p, BN_CTX *ctx)
 {
-    BIGNUM *coef;
-    BN_CTX_start(ctx);
-    coef = BN_CTX_get(ctx);
+	const BIGNUM *p0;
+	const BIGNUM *p1;
+	const BIGNUM *p2;
+
+	p0 = SM9_get0_fast_frobenius_fp2_fp12_p0();
+	p1 = SM9_get0_fast_frobenius_fp2_fp12_p1();
+	p2 = SM9_get0_fast_frobenius_fp2_fp12_p2();
+
     
     fp2_conj(R1->X, P->X, p);
-    BN_hex2bn(&coef, INV_FRB_P1_DEN6);
-    fp2_mul_num(R1->X, R1->X, coef, p, ctx);
+    fp2_mul_num(R1->X, R1->X, p0, p, ctx);
     
     fp2_conj(R1->Y, P->Y, p);
-    BN_hex2bn(&coef, INV_FRB_P1_DEN4);
-    fp2_mul_num(R1->Y, R1->Y, coef, p, ctx);
+    fp2_mul_num(R1->Y, R1->Y, p1, p, ctx);
     
     fp2_set_one(R1->Z);
     
-    BN_hex2bn(&coef, INV_FRB_P2_DEN6);
-    fp2_mul_num(R2->X, P->X, coef, p, ctx);
+    fp2_mul_num(R2->X, P->X, p2, p, ctx);
     
     fp2_neg(R2->Y, P->Y, p);
     fp2_set_one(R2->Z);
-    BN_CTX_end(ctx);
     return 1;
 }
 

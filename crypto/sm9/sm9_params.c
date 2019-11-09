@@ -59,11 +59,13 @@
 #include "internal/cryptlib.h"
 
 
-#define BN_SM9_BN256_TOP (256+BN_BITS2-1)/BN_BITS2
-#define BN_SM9_LOOP_TOP (66+BN_BITS2-1)/BN_BITS2
-#define BN_SM9_FINAL_EXPO_TOP (2816+BN_BITS2-1)/BN_BITS2
-#define BN_SM9_FAST_FINAL_EXPO_P2_TOP (256+BN_BITS2-1)/BN_BITS2
-#define BN_SM9_FAST_FINAL_EXPO_P3_TOP (768+BN_BITS2-1)/BN_BITS2
+#define BN_SM9_BN256_TOP (256+BN_BITS2-1)/BN_BITS2  //4
+#define BN_SM9_LOOP_TOP (66+BN_BITS2-1)/BN_BITS2      //2
+#define BN_SM9_FINAL_EXPO_TOP (2816+BN_BITS2-1)/BN_BITS2   //44
+#define BN_SM9_FAST_FROBENIUS_FP2_FP12_TOP (256+BN_BITS2-1)/BN_BITS2  //4
+#define BN_SM9_FAST_FINAL_EXPO_P1_TOP (256+BN_BITS2-1)/BN_BITS2  //4
+#define BN_SM9_FAST_FINAL_EXPO_P2_TOP (256+BN_BITS2-1)/BN_BITS2  //4
+#define BN_SM9_FAST_FINAL_EXPO_P3_TOP (768+BN_BITS2-1)/BN_BITS2  //12
 
 #if BN_BITS2 == 64
 static const BN_ULONG _sm9bn256v1_prime[BN_SM9_BN256_TOP] = {
@@ -124,6 +126,19 @@ static const BN_ULONG _sm9bn256v1_final_expo[BN_SM9_FINAL_EXPO_TOP] = {
 	0x1A09A6AE43ADE454ULL, 0x061835E8B1259499ULL,
 };
 
+static const BN_ULONG _sm9bn256v1_fast_final_expo_p1[][BN_SM9_FAST_FINAL_EXPO_P1_TOP] = {
+	{0xF5B21FD3DA24D011ULL, 0x9F9D411806DC5177ULL,
+	 0xF55ACC93EE0BAF15ULL, 0x6C648DE5DC0A3F2CULL},
+	{0xA91D8354377B698BULL, 0x47C5C86E0DDD04EDULL,
+	 0x843C6CFA9C086749ULL, 0x3F23EA58E5720BDBULL},
+	{0xD5FC11967BE65333ULL, 0x780272354F8B78F4ULL,
+	 0xF300000002A3A6F2ULL},
+	{0xD5FC11967BE65334ULL, 0x780272354F8B78F4ULL,
+	 0xF300000002A3A6F2ULL},
+	{0x4C949C7FA2A96686ULL, 0x57D778A9F8FF4C8AULL,
+	 0x711E5F99520347CCULL, 0x2D40A38CF6983351ULL}
+};
+
 static const BN_ULONG _sm9bn256v1_fast_final_expo_p2[][BN_SM9_FAST_FINAL_EXPO_P2_TOP] = {
 	{0xD5FC11967BE65334ULL, 0x780272354F8B78F4ULL,
 	 0xF300000002A3A6F2ULL},
@@ -132,6 +147,15 @@ static const BN_ULONG _sm9bn256v1_fast_final_expo_p2[][BN_SM9_FAST_FINAL_EXPO_P2
 	{0xD5FC11967BE65333ULL, 0x780272354F8B78F4ULL,
 	 0xF300000002A3A6F2ULL},
 	{0x0F738991676AF24AULL, 0xA9F02115CAEF75E7ULL,
+	 0xE303AB4FF2EB2052ULL, 0xB640000002A3A6F0ULL}
+};
+
+static const BN_ULONG _sm9bn256v1_fast_frobenius_fp2_fp12[][BN_SM9_FAST_FROBENIUS_FP2_FP12_TOP] = {
+	{0x0F738991676AF24AULL, 0xA9F02115CAEF75E7ULL,
+	 0xE303AB4FF2EB2052ULL, 0xB640000002A3A6F0ULL},
+	{0xEFBD7B54092C756CULL, 0x82555233139E9D63ULL,
+	 0xE0A8DEBC0783182FULL, 0x49DB721A269967C4ULL},
+	{0x0F738991676AF249ULL, 0xA9F02115CAEF75E7ULL,
 	 0xE303AB4FF2EB2052ULL, 0xB640000002A3A6F0ULL}
 };
 
@@ -267,6 +291,46 @@ static const BIGNUM _bignum_sm9bn256v1_final_expo = {
 	BN_FLG_STATIC_DATA
 };
 
+static const BIGNUM _bignum_sm9bn256v1_fast_final_expo_p10 = {
+	(BN_ULONG *)_sm9bn256v1_fast_final_expo_p1[0],
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	0,
+	BN_FLG_STATIC_DATA
+};
+
+static const BIGNUM _bignum_sm9bn256v1_fast_final_expo_p11 = {
+	(BN_ULONG *)_sm9bn256v1_fast_final_expo_p1[1],
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	0,
+	BN_FLG_STATIC_DATA
+};
+
+static const BIGNUM _bignum_sm9bn256v1_fast_final_expo_p12 = {
+	(BN_ULONG *)_sm9bn256v1_fast_final_expo_p1[2],
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	0,
+	BN_FLG_STATIC_DATA
+};
+
+static const BIGNUM _bignum_sm9bn256v1_fast_final_expo_p13 = {
+	(BN_ULONG *)_sm9bn256v1_fast_final_expo_p1[3],
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	0,
+	BN_FLG_STATIC_DATA
+};
+
+static const BIGNUM _bignum_sm9bn256v1_fast_final_expo_p14 = {
+	(BN_ULONG *)_sm9bn256v1_fast_final_expo_p1[4],
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	BN_SM9_FAST_FINAL_EXPO_P1_TOP,
+	0,
+	BN_FLG_STATIC_DATA
+};
+
 static const BIGNUM _bignum_sm9bn256v1_fast_final_expo_p20 = {
 	(BN_ULONG *)_sm9bn256v1_fast_final_expo_p2[0],
 	BN_SM9_FAST_FINAL_EXPO_P2_TOP,
@@ -295,6 +359,30 @@ static const BIGNUM _bignum_sm9bn256v1_fast_final_expo_p23 = {
 	(BN_ULONG *)_sm9bn256v1_fast_final_expo_p2[3],
 	BN_SM9_FAST_FINAL_EXPO_P2_TOP,
 	BN_SM9_FAST_FINAL_EXPO_P2_TOP,
+	0,
+	BN_FLG_STATIC_DATA
+};
+
+static const BIGNUM _bignum_sm9bn256v1_fast_frobenius_fp2_fp12_p0 = {
+	(BN_ULONG *)_sm9bn256v1_fast_frobenius_fp2_fp12[0],
+	BN_SM9_FAST_FROBENIUS_FP2_FP12_TOP,
+	BN_SM9_FAST_FROBENIUS_FP2_FP12_TOP,
+	0,
+	BN_FLG_STATIC_DATA
+};
+
+static const BIGNUM _bignum_sm9bn256v1_fast_frobenius_fp2_fp12_p1 = {
+	(BN_ULONG *)_sm9bn256v1_fast_frobenius_fp2_fp12[1],
+	BN_SM9_FAST_FROBENIUS_FP2_FP12_TOP,
+	BN_SM9_FAST_FROBENIUS_FP2_FP12_TOP,
+	0,
+	BN_FLG_STATIC_DATA
+};
+
+static const BIGNUM _bignum_sm9bn256v1_fast_frobenius_fp2_fp12_p2 = {
+	(BN_ULONG *)_sm9bn256v1_fast_frobenius_fp2_fp12[2],
+	BN_SM9_FAST_FROBENIUS_FP2_FP12_TOP,
+	BN_SM9_FAST_FROBENIUS_FP2_FP12_TOP,
 	0,
 	BN_FLG_STATIC_DATA
 };
@@ -384,6 +472,31 @@ const BIGNUM *SM9_get0_final_exponent(void)
 	return &_bignum_sm9bn256v1_final_expo;
 }
 
+const BIGNUM *SM9_get0_fast_final_exponent_p10(void)
+{
+	return &_bignum_sm9bn256v1_fast_final_expo_p10;
+}
+
+const BIGNUM *SM9_get0_fast_final_exponent_p11(void)
+{
+	return &_bignum_sm9bn256v1_fast_final_expo_p11;
+}
+
+const BIGNUM *SM9_get0_fast_final_exponent_p12(void)
+{
+	return &_bignum_sm9bn256v1_fast_final_expo_p12;
+}
+
+const BIGNUM *SM9_get0_fast_final_exponent_p13(void)
+{
+	return &_bignum_sm9bn256v1_fast_final_expo_p13;
+}
+
+const BIGNUM *SM9_get0_fast_final_exponent_p14(void)
+{
+	return &_bignum_sm9bn256v1_fast_final_expo_p14;
+}
+
 const BIGNUM *SM9_get0_fast_final_exponent_p20(void)
 {
 	return &_bignum_sm9bn256v1_fast_final_expo_p20;
@@ -402,6 +515,21 @@ const BIGNUM *SM9_get0_fast_final_exponent_p22(void)
 const BIGNUM *SM9_get0_fast_final_exponent_p23(void)
 {
 	return &_bignum_sm9bn256v1_fast_final_expo_p23;
+}
+
+const BIGNUM *SM9_get0_fast_frobenius_fp2_fp12_p0(void)
+{
+	return &_bignum_sm9bn256v1_fast_frobenius_fp2_fp12_p0;
+}
+
+const BIGNUM *SM9_get0_fast_frobenius_fp2_fp12_p1(void)
+{
+	return &_bignum_sm9bn256v1_fast_frobenius_fp2_fp12_p1;
+}
+
+const BIGNUM *SM9_get0_fast_frobenius_fp2_fp12_p2(void)
+{
+	return &_bignum_sm9bn256v1_fast_frobenius_fp2_fp12_p2;
 }
 
 const BIGNUM *SM9_get0_fast_final_exponent_p3(void)
