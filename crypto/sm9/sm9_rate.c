@@ -68,7 +68,9 @@
 #define FRB_P2_20 "F300000002A3A6F2780272354F8B78F4D5FC11967BE65333"
 #define FRB_P2_21 "B640000002A3A6F0E303AB4FF2EB2052A9F02115CAEF75E70F738991676AF24A"
 
-
+#define INV_FRB_P1_DEN6 "B640000002A3A6F0E303AB4FF2EB2052A9F02115CAEF75E70F738991676AF24A"
+#define INV_FRB_P1_DEN4 "49DB721A269967C4E0A8DEBC0783182F82555233139E9D63EFBD7B54092C756C"
+#define INV_FRB_P2_DEN6 "B640000002A3A6F0E303AB4FF2EB2052A9F02115CAEF75E70F738991676AF249"
 
 
 static int fp2_init(fp2_t a, BN_CTX *ctx)
@@ -2553,35 +2555,65 @@ end:
 	return ret;
 }
 
+
 static int frobenius(point_t *R, const point_t *P, const BIGNUM *p, BN_CTX *ctx)
 {
-	fp12_t x, y;
+    fp12_t x, y;
 
-	fp12_init(x, ctx);
-	fp12_init(y, ctx);
+    fp12_init(x, ctx);
+    fp12_init(y, ctx);
 
 
 
-	point_get_ext_affine_coordinates(P, x, y, p, ctx);
+    point_get_ext_affine_coordinates(P, x, y, p, ctx);
 
-    fp12_frobenius_p1(x, x, p, ctx);
-    fp12_frobenius_p1(y, y, p, ctx);
+    fp12_pow(x, x, p, p, ctx);
+    fp12_pow(y, y, p, p, ctx);
 
-	point_set_ext_affine_coordinates(R, x, y, p, ctx);
+    point_set_ext_affine_coordinates(R, x, y, p, ctx);
 
-	fp12_cleanup(x);
-	fp12_cleanup(y);
-	return 1;
+    point_print(R);
+    printf("========================\n");
+    fp12_cleanup(x);
+    fp12_cleanup(y);
+    return 1;
 }
 
 static int frobenius_twice(point_t *R, const point_t *P, const BIGNUM *p, BN_CTX *ctx)
 {
-	frobenius(R, P, p, ctx);
-	frobenius(R, R, p, ctx);
-	return 1;
+    frobenius(R, P, p, ctx);
+    frobenius(R, R, p, ctx);
+    point_print(R);
+    return 1;
 }
 
 
+static int frobenius_simultaneously(point_t *R1, point_t *R2, const point_t *P, const BIGNUM *p, BN_CTX *ctx)
+{
+    BIGNUM *coef;
+    BN_CTX_start(ctx);
+    coef = BN_CTX_get(ctx);
+    
+    fp2_conj(R1->X, P->X, p);
+    BN_hex2bn(&coef, INV_FRB_P1_DEN6);
+    fp2_mul_num(R1->X, R1->X, coef, p, ctx);
+    
+    fp2_conj(R1->Y, P->Y, p);
+    BN_hex2bn(&coef, INV_FRB_P1_DEN4);
+    fp2_mul_num(R1->Y, R1->Y, coef, p, ctx);
+    
+    fp2_set_one(R1->Z);
+    
+    BN_hex2bn(&coef, INV_FRB_P2_DEN6);
+    fp2_mul_num(R2->X, P->X, coef, p, ctx);
+    
+    fp2_neg(R2->Y, P->Y, p);
+    fp2_set_one(R2->Z);
+    BN_CTX_end(ctx);
+    return 1;
+}
+
+/*
 static int final_expo(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGNUM *p, BN_CTX *ctx)
 {
 	int i, n;
@@ -2609,7 +2641,7 @@ static int final_expo(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGNUM *p
 	fp12_cleanup(t);
 	return 1;
 }
-
+*/
 /*
 static int fast_final_expo(fp12_t r, const fp12_t a, const BIGNUM *k, const BIGNUM *p, BN_CTX *ctx)
 {
@@ -2804,10 +2836,12 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 	}
 
 	/* Q1 = (x^p, y^p) */
-	frobenius(&Q1, Q, p, ctx);
+	//frobenius(&Q1, Q, p, ctx);
 
 	/* Q2 = (x^(p^2), y^(p^2)) */
-	frobenius_twice(&Q2, Q, p, ctx);
+	//frobenius_twice(&Q2, Q, p, ctx);
+    
+    frobenius_simultaneously(&Q1, &Q2, Q, p, ctx);
 
 	/* f = f * g_{T, Q1}(P) */
 	eval_line(g, &T, &Q1, xP, yP, p, ctx);
@@ -2866,11 +2900,13 @@ int rate_pairing(fp12_t r, const point_t *Q, const EC_POINT *P, BN_CTX *ctx)
 	group = EC_GROUP_new_by_curve_name(NID_sm9bn256v1);
 	p = SM9_get0_prime();
 	a = SM9_get0_loop_count();
+    
 #ifdef NOSM9_FAST
 	k = SM9_get0_final_exponent();
 #else
 	k = SM9_get0_fast_final_exponent_p3();
 #endif
+     
 	xP = BN_CTX_get(ctx);
 	yP = BN_CTX_get(ctx);
 
