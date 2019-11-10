@@ -1041,13 +1041,14 @@ static int fp12_is_one(const fp12_t a)
 		&& fp4_is_zero(a[2]);
 }
 
+#endif
+
 static void fp12_set_zero(fp12_t r)
 {
 	fp4_set_zero(r[0]);
 	fp4_set_zero(r[1]);
 	fp4_set_zero(r[2]);
 }
-#endif
 
 static int fp12_set_one(fp12_t r)
 {
@@ -2444,6 +2445,71 @@ static int point_test(const BIGNUM *p, BN_CTX *ctx)
 }
 #endif
 
+static int point_dbl_eval_tangent(fp12_t r, point_t *T, const BIGNUM *xP, const BIGNUM *yP,
+	const BIGNUM *p, BN_CTX *ctx)
+{
+	int ret = 1;
+	fp2_t t0, t1, t2, t3;
+	fp12_set_zero(r);
+
+	BN_CTX_start(ctx);
+	ret &= fp2_init(t0, ctx);
+	ret &= fp2_init(t1, ctx);
+	ret &= fp2_init(t2, ctx);
+	ret &= fp2_init(t3, ctx);
+
+	if (!ret){
+		BN_CTX_end(ctx);
+		return 0;
+	}
+
+	if (// t0 = 2 * Y^2 
+		!fp2_sqr(t0, T->Y, p, ctx)
+	|| !fp2_dbl(t0, t0, p)
+
+	// t1 = 2 * t0 * X
+	|| !fp2_mul(t1, t0, T->X, p, ctx)
+	|| !fp2_dbl(t1, t1, p)
+
+	// t3 = 3 * X^2
+	|| !fp2_sqr(t3, T->X, p, ctx)
+	|| !fp2_dbl(t2, t3, p)
+	|| !fp2_add(t3, t3, t2, p)
+
+	// t2 = 2 * t0^2
+	|| !fp2_sqr(t2, t0, p, ctx)
+	|| !fp2_dbl(t2, t2, p)
+
+	|| !fp2_mul(r[0][0], t3, T->X, p, ctx)
+	|| !fp2_sub(r[0][0], r[0][0], t0, p)
+	
+	// Z3 = 2 * Y * Z
+	|| !fp2_sqr(t0, T->Z, p, ctx)
+	|| !fp2_mul(T->Z, T->Y, T->Z, p, ctx)
+	|| !fp2_dbl(T->Z, T->Z, p)
+
+	|| !fp2_sqr(T->X, t3, p, ctx)
+	|| !fp2_sub(T->X, T->X, t1, p)
+	|| !fp2_sub(T->X, T->X, t1, p)
+
+	|| !fp2_sub(T->Y, t1, T->X, p)
+	|| !fp2_mul(T->Y, T->Y, t3, p, ctx)
+	|| !fp2_sub(T->Y, T->Y, t2, p)
+
+	|| !fp2_mul(r[2][0], t0, t3, p, ctx)
+	|| !fp2_mul_num(r[2][0], r[2][0], xP, p, ctx)
+	|| !fp2_neg(r[2][0], r[2][0], p)
+
+	|| !fp2_mul(r[0][1], t0, T->Z, p, ctx)
+	|| !fp2_mul_num(r[0][1], r[0][1], yP, p, ctx)){
+		BN_CTX_end(ctx);
+		return 0;
+	}
+	BN_CTX_end(ctx);
+	return 1;
+}
+
+/*
 static int eval_tangent(fp12_t r, const point_t *T, const BIGNUM *xP, const BIGNUM *yP,
 	const BIGNUM *p, BN_CTX *ctx)
 {
@@ -2467,14 +2533,14 @@ static int eval_tangent(fp12_t r, const point_t *T, const BIGNUM *xP, const BIGN
 	ret = 0;
 	if (!fp12_set_bn(x, xP)
 		|| !fp12_set_bn(y, yP)
-		/* lambda = (3 * xT^2)/(2 * yT) */
+		// lambda = (3 * xT^2)/(2 * yT) 
 		|| !fp12_sqr(lambda, xT, p, ctx)
 		|| !fp12_tri(lambda, lambda, p, ctx)
 		|| !fp12_dbl(t, yT, p)
 		|| !fp12_inv(t, t, p, ctx)
 		|| !fp12_mul(lambda, lambda, t, p, ctx)
 
-		/* r = lambda * (x - xT) - y + yT */
+		// r = lambda * (x - xT) - y + yT 
 		|| !fp12_sub(r, x, xT, p)
 		|| !fp12_mul(r, lambda, r, p, ctx)
 		|| !fp12_sub(r, r, y, p)
@@ -2490,7 +2556,66 @@ end:
 	fp12_cleanup(t);
 	return ret;
 }
+*/
 
+static int point_add_eval_line(fp12_t r, point_t *T, const point_t *Q, const BIGNUM *xP,
+	const BIGNUM *yP, const BIGNUM *p, BN_CTX *ctx)
+{
+	int ret = 1;
+	fp2_t t0, t1, t2, t3, t4;
+	fp12_set_zero(r);
+	BN_CTX_start(ctx);
+
+	ret &= fp2_init(t0, ctx);
+	ret &= fp2_init(t1, ctx);
+	ret &= fp2_init(t2, ctx);
+	ret &= fp2_init(t3, ctx);
+	ret &= fp2_init(t4, ctx);
+
+	if (!ret){
+		BN_CTX_end(ctx);
+		return 0;
+	}
+
+	if (
+		!fp2_sqr(t0, T->Z, p, ctx)
+		|| !fp2_mul(t1, t0, T->Z, p, ctx)
+		|| !fp2_mul(t0, Q->X, t0, p, ctx)
+		|| !fp2_mul(t1, Q->Y, t1, p, ctx)
+		|| !fp2_sub(t0, t0, T->X, p)
+		|| !fp2_sub(t1, t1, T->Y, p)
+		|| !fp2_sqr(t2, t0, p, ctx)
+		|| !fp2_mul(t3, t2, t0, p, ctx)
+		|| !fp2_mul(t4, T->X, t2, p, ctx)
+		|| !fp2_sqr(T->X, t1, p, ctx)
+		|| !fp2_sub(T->X, T->X, t3, p)
+		|| !fp2_sub(T->X, T->X, t4, p)
+		|| !fp2_sub(T->X, T->X, t4, p)
+
+		|| !fp2_mul(t2, T->Y, t3, p, ctx)
+		|| !fp2_sub(T->Y, t4, T->X, p)
+		|| !fp2_mul(T->Y, T->Y, t1, p, ctx)
+		|| !fp2_sub(T->Y, T->Y, t2, p)
+
+		|| !fp2_mul(T->Z, T->Z, t0, p, ctx)
+		
+		|| !fp2_mul_num(r[2][0], t1, xP, p, ctx)
+		|| !fp2_neg(r[2][0], r[2][0], p)
+
+		|| !fp2_mul(t2, T->Z, Q->Y, p, ctx)
+		|| !fp2_mul_num(r[0][1], T->Z, yP, p, ctx)
+		
+		|| !fp2_mul(r[0][0], Q->X, t1, p, ctx)
+		|| !fp2_sub(r[0][0], r[0][0], t2, p)){
+			BN_CTX_end(ctx);
+			return 0;
+		}
+		BN_CTX_end(ctx);
+		return 1;
+
+}
+
+/*
 static int eval_line(fp12_t r,  const point_t *T, const point_t *Q,
 	const BIGNUM *xP, const BIGNUM *yP,
 	const BIGNUM *p, BN_CTX *ctx)
@@ -2518,13 +2643,13 @@ static int eval_line(fp12_t r,  const point_t *T, const point_t *Q,
 	ret = 0;
 	if (!fp12_set_bn(x, xP)
 		|| !fp12_set_bn(y, yP)
-		/* lambda = (yT - yQ)/(xT - xQ) */
+		// lambda = (yT - yQ)/(xT - xQ) 
 		|| !fp12_sub(lambda, yT, yQ, p)
 		|| !fp12_sub(t, xT, xQ, p)
 		|| !fp12_inv(t, t, p, ctx)
 		|| !fp12_mul(lambda, lambda, t, p, ctx)
 
-		/* r = lambda * (x - xQ) - y + yQ */
+		// r = lambda * (x - xQ) - y + yQ 
 		|| !fp12_sub(r, x, xQ, p)
 		|| !fp12_mul(r, lambda, r, p, ctx)
 		|| !fp12_sub(r, r, y, p)
@@ -2540,6 +2665,7 @@ end:
 	fp12_cleanup(t);
 	return ret;
 }
+*/
 
 /*
 static int frobenius(point_t *R, const point_t *P, const BIGNUM *p, BN_CTX *ctx)
@@ -2769,9 +2895,11 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 	point_t T, Q1, Q2;
 	fp12_t g;
 
+	/*
 	memset(&T, 0, sizeof(T));
 	memset(&Q1, 0, sizeof(Q1));
 	memset(&Q2, 0, sizeof(Q2));
+	*/
 
 	point_init(&T, ctx);
 	point_init(&Q1, ctx);
@@ -2786,8 +2914,9 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 		//printf("miller loop %d\n", i);
 
 		/* f = f^2 * g_{T,T}(P) */
-		eval_tangent(g, &T, xP, yP, p, ctx);
+		//eval_tangent(g, &T, xP, yP, p, ctx);
 
+		point_dbl_eval_tangent(g, &T, xP, yP, p, ctx);
 		//printf("g\n");
 		//fp12_print(g);
 
@@ -2798,11 +2927,13 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 		//fp12_print(f);
 
 		/* T = 2 * T */
-		point_dbl(&T, &T, p, ctx);
+		//point_dbl(&T, &T, p, ctx);
 
 		if (BN_is_bit_set(a, i)) {
 			/* f = f * g_{T,Q}(P) */
-			eval_line(g, &T, Q, xP, yP, p, ctx);
+			//eval_line(g, &T, Q, xP, yP, p, ctx);
+
+			point_add_eval_line(g, &T, Q, xP, yP, p, ctx);
 
 			//printf("g\n");
 			//fp12_print(g);
@@ -2814,7 +2945,7 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 			//fp12_print(f);
 
 			/* T = T + Q */
-			point_add(&T, &T, Q, p, ctx);
+			//point_add(&T, &T, Q, p, ctx);
 		}
 
 	}
@@ -2828,19 +2959,23 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
     frobenius_simultaneously(&Q1, &Q2, Q, p, ctx);
 
 	/* f = f * g_{T, Q1}(P) */
-	eval_line(g, &T, &Q1, xP, yP, p, ctx);
+	//eval_line(g, &T, &Q1, xP, yP, p, ctx);
+
+	point_add_eval_line(g, &T, &Q1, xP, yP, p, ctx);
 	fp12_mul(f, f, g, p, ctx);
 
 	/* T = T + Q1 */
-	point_add(&T, &T, &Q1, p, ctx);
+	//point_add(&T, &T, &Q1, p, ctx);
 
 	/* f = f * g_{T, -Q2}(P) */
 	point_neg(&Q2, &Q2, p, ctx);
-	eval_line(g, &T, &Q2, xP, yP, p, ctx);
+	//eval_line(g, &T, &Q2, xP, yP, p, ctx);
+
+	point_add_eval_line(g, &T, &Q2, xP, yP, p, ctx);
 	fp12_mul(f, f, g, p, ctx);
 
 	/* T = T - Q2 */
-	point_add(&T, &T, &Q2, p, ctx);
+	//point_add(&T, &T, &Q2, p, ctx);
 
 #ifdef NOSM9_FAST
 	/* f = f^((p^12 - 1)/n) */
