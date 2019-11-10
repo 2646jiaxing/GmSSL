@@ -1301,6 +1301,7 @@ static int fp12_sqr(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 	return 1;
 }
 
+
 static int fp12_inv(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 {
 	if (fp4_is_zero(a[2])) {
@@ -2664,18 +2665,13 @@ static int final_exp(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 
 
 static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
-	const BIGNUM *a, const BIGNUM *k, const BIGNUM *p, BN_CTX *ctx)
+	const BIGNUM *a, const BIGNUM *p, BN_CTX *ctx)
 {
 	int ret = 0;
 	int i, n;
 	point_t T, Q1, Q2;
 	fp12_t g;
-
-	/*
-	memset(&T, 0, sizeof(T));
-	memset(&Q1, 0, sizeof(Q1));
-	memset(&Q2, 0, sizeof(Q2));
-	*/
+	BN_CTX_start(ctx);
 
 	point_init(&T, ctx);
 	point_init(&Q1, ctx);
@@ -2687,87 +2683,34 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 
 	n = BN_num_bits(a);
 	for (i = n - 2; i >= 0; i--) {
-		//printf("miller loop %d\n", i);
-
-		/* f = f^2 * g_{T,T}(P) */
-		//eval_tangent(g, &T, xP, yP, p, ctx);
 
 		point_dbl_eval_tangent(g, &T, xP, yP, p, ctx);
-		//printf("g\n");
-		//fp12_print(g);
-
 		fp12_sqr(f, f, p, ctx);
 		fp12_mul(f, f, g, p, ctx);
 
-		//printf("f\n");
-		//fp12_print(f);
-
-		/* T = 2 * T */
-		//point_dbl(&T, &T, p, ctx);
-
 		if (BN_is_bit_set(a, i)) {
-			/* f = f * g_{T,Q}(P) */
-			//eval_line(g, &T, Q, xP, yP, p, ctx);
 
 			point_add_eval_line(g, &T, Q, xP, yP, p, ctx);
-
-			//printf("g\n");
-			//fp12_print(g);
-
-
 			fp12_mul(f, f, g, p, ctx);
-
-			//printf("f\n");
-			//fp12_print(f);
-
-			/* T = T + Q */
-			//point_add(&T, &T, Q, p, ctx);
 		}
-
 	}
-
-	/* Q1 = (x^p, y^p) */
-	//frobenius(&Q1, Q, p, ctx);
-
-	/* Q2 = (x^(p^2), y^(p^2)) */
-	//frobenius_twice(&Q2, Q, p, ctx);
-    
     frobenius_simultaneously(&Q1, &Q2, Q, p, ctx);
-
-	/* f = f * g_{T, Q1}(P) */
-	//eval_line(g, &T, &Q1, xP, yP, p, ctx);
 
 	point_add_eval_line(g, &T, &Q1, xP, yP, p, ctx);
 	fp12_mul(f, f, g, p, ctx);
 
-	/* T = T + Q1 */
-	//point_add(&T, &T, &Q1, p, ctx);
-
-	/* f = f * g_{T, -Q2}(P) */
 	point_neg(&Q2, &Q2, p, ctx);
-	//eval_line(g, &T, &Q2, xP, yP, p, ctx);
 
 	point_add_eval_line(g, &T, &Q2, xP, yP, p, ctx);
 	fp12_mul(f, f, g, p, ctx);
 
-	/* T = T - Q2 */
-	//point_add(&T, &T, &Q2, p, ctx);
-
-#ifdef NOSM9_FAST
-	/* f = f^((p^12 - 1)/n) */
-	final_expo(f, f, k, p, ctx);
-#else
-	/* f = ((f ^ (p^6-1)) ^ (p^2+1)) ^ [(p^4-p^2+1)/n] */
 	final_exp(f, f, p, ctx);
-#endif
 
-	point_cleanup(&T);
-	point_cleanup(&Q1);
-	point_cleanup(&Q2);
-	fp12_cleanup(g);
+	BN_CTX_end(ctx);
 	return ret;
 }
 
+#if SM9_TEST
 static int params_test(void)
 {
 	const BIGNUM *p = SM9_get0_prime();
@@ -2780,6 +2723,7 @@ static int params_test(void)
 
 	return 1;
 }
+#endif
 
 int rate_pairing(fp12_t r, const point_t *Q, const EC_POINT *P, BN_CTX *ctx)
 {
@@ -2795,12 +2739,6 @@ int rate_pairing(fp12_t r, const point_t *Q, const EC_POINT *P, BN_CTX *ctx)
 	group = EC_GROUP_new_by_curve_name(NID_sm9bn256v1);
 	p = SM9_get0_prime();
 	a = SM9_get0_loop_count();
-    
-#ifdef NOSM9_FAST
-	k = SM9_get0_final_exponent();
-#else
-	k = SM9_get0_fast_final_exponent_p3();
-#endif
      
 	xP = BN_CTX_get(ctx);
 	yP = BN_CTX_get(ctx);
@@ -2822,13 +2760,16 @@ int rate_pairing(fp12_t r, const point_t *Q, const EC_POINT *P, BN_CTX *ctx)
 			SM9_get0_generator2_y1());
         
         time0 = clock();
-		rate(r, &P2, xP, yP, a, k, p, ctx);
+		rate(r, &P2, xP, yP, a, p, ctx);
         time0 = (clock() - time0) / CLOCKS_PER_SEC;
-        printf("pairing costs: %fs\n", time0);
+        printf("(Q is generator)pairing costs: %fs\n", time0);
 
 		point_cleanup(&P2);
 	} else {
-		rate(r, Q, xP, yP, a, k, p, ctx);
+		time0 = clock();
+		rate(r, Q, xP, yP, a, p, ctx);
+		time0 = (clock() - time0) / CLOCKS_PER_SEC;
+		printf("(Q is not generator)pairing costs: %fs\n", time0);
 	}
 
 	BN_free(xP);
