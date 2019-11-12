@@ -199,8 +199,8 @@ static int fp2_add(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p)
 
 static int fp2_dbl(fp2_t r, const fp2_t a, const BIGNUM *p)
 {
-	return BN_mod_add_quick(r[0], a[0], a[0], p)
-		&& BN_mod_add_quick(r[1], a[1], a[1], p);
+	return BN_mod_lshift1_quick(r[0], a[0], p)
+		&& BN_mod_lshift1_quick(r[1], a[1], p);
 }
 
 static int fp2_tri(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
@@ -255,6 +255,33 @@ static int fp2_mul(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_CT
     return 1;
 }
 
+static int fp2_mul_montgomery(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+    BIGNUM *t, *r0, *r1;
+    BN_CTX_start(ctx);
+    
+    if (!(t = BN_CTX_get(ctx))
+        || !(r0 = BN_CTX_get(ctx))
+        || !(r1 = BN_CTX_get(ctx))
+
+        /* r0 = a0 * b0 - 2 * a1 * b1, r1 = (a0 + a1) * (b0 + b1) - a0 * b0 - a1 * b1 */
+        || !BN_mod_add_quick(r0, a[0], a[1], p)
+        || !BN_mod_add_quick(r1, b[0], b[1], p)
+        || !BN_mod_mul_montgomery(r1, r0, r1, mont, ctx)
+        || !BN_mod_mul_montgomery(r0, a[0], b[0], mont, ctx)
+        || !BN_mod_sub_quick(r1, r1, r0, p)
+        || !BN_mod_mul_montgomery(t, a[1], b[1], mont, ctx)
+        || !BN_mod_sub_quick(r[1], r1, t, p)
+        || !BN_mod_lshift1_quick(t, t, p)
+        || !BN_mod_sub_quick(r[0], r0, t, p)) {
+        
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
+}
+
 static int fp2_mul_u(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_CTX *ctx)
 {
     BIGNUM *r0, *r1, *t;
@@ -292,6 +319,15 @@ static int fp2_mul_num(fp2_t r, const fp2_t a, const BIGNUM *n, const BIGNUM *p,
 	return 1;
 }
 
+static int fp2_mul_num_montgomery(fp2_t r, const fp2_t a, const BIGNUM *n, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	if (!BN_mod_mul_montgomery(r[0], a[0], n, mont, ctx)
+		|| !BN_mod_mul_montgomery(r[1], a[1], n, mont, ctx)) {
+		return 0;
+	}
+	return 1;
+}
+
 static int fp2_sqr(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
 {
     BIGNUM *r0, *r1;
@@ -305,6 +341,29 @@ static int fp2_sqr(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
         || !BN_mod_sqr(r1, a[1], p, ctx)
         || !BN_mod_lshift1_quick(r1, r1, p)
         || !BN_mod_mul(r[1], a[0], a[1], p, ctx)
+        || !BN_mod_lshift1_quick(r[1], r[1], p)
+        || !BN_mod_sub_quick(r[0], r0, r1, p)) {
+        
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
+}
+
+static int fp2_sqr_montgomery(fp2_t r, const fp2_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+    BIGNUM *r0, *r1;
+    BN_CTX_start(ctx);
+    
+    if (!(r0 = BN_CTX_get(ctx))
+        || !(r1 = BN_CTX_get(ctx))
+        
+        /* r0 = a0^2 - 2 * a1^2, r1 = 2 * a0 * a1 */
+        || !BN_mod_mul_montgomery(r0, a[0], a[0], mont, ctx)
+        || !BN_mod_mul_montgomery(r1, a[1], a[1], mont, ctx)
+        || !BN_mod_lshift1_quick(r1, r1, p)
+        || !BN_mod_mul_montgomery(r[1], a[0], a[1], mont, ctx)
         || !BN_mod_lshift1_quick(r[1], r[1], p)
         || !BN_mod_sub_quick(r[0], r0, r1, p)) {
         
@@ -394,6 +453,20 @@ static int fp2_conj(fp2_t r, const fp2_t a, const BIGNUM *p)
         return 0;
     }
     return 1;
+}
+
+static int fp2_to_montgomery(fp2_t r, const fp2_t a, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	BN_to_montgomery(r[0], a[0], mont, ctx);
+	BN_to_montgomery(r[1], a[1], mont, ctx);
+	return 1;
+}
+
+static int fp2_from_montgomery(fp2_t r, const fp2_t a, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	BN_from_montgomery(r[0], a[0], mont, ctx);
+	BN_from_montgomery(r[1], a[1], mont, ctx);
+	return 1;
 }
 
 #if SM9_TEST
@@ -1574,6 +1647,48 @@ static int fp12_frobenius_p6(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *
     && fp2_neg (r[2][1], a[2][1], p);
 }
 
+static int fp12_to_montgomery(fp12_t r, const fp12_t a, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	BN_to_montgomery(r[0][0][0], a[0][0][0], mont, ctx);
+	BN_to_montgomery(r[0][0][1], a[0][0][1], mont, ctx);
+	BN_to_montgomery(r[0][1][0], a[0][1][0], mont, ctx);
+	BN_to_montgomery(r[0][1][1], a[0][1][1], mont, ctx);
+
+	BN_to_montgomery(r[1][0][0], a[1][0][0], mont, ctx);
+	BN_to_montgomery(r[1][0][1], a[1][0][1], mont, ctx);
+	BN_to_montgomery(r[1][1][0], a[1][1][0], mont, ctx);
+	BN_to_montgomery(r[1][1][1], a[1][1][1], mont, ctx);
+
+	BN_to_montgomery(r[2][0][0], a[2][0][0], mont, ctx);
+	BN_to_montgomery(r[2][0][1], a[2][0][1], mont, ctx);
+	BN_to_montgomery(r[2][1][0], a[2][1][0], mont, ctx);
+	BN_to_montgomery(r[2][1][1], a[2][1][1], mont, ctx);
+
+	return 1;
+}
+
+static int fp12_from_montgomery(fp12_t r, const fp12_t a, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	BN_from_montgomery(r[0][0][0], a[0][0][0], mont, ctx);
+	BN_from_montgomery(r[0][0][1], a[0][0][1], mont, ctx);
+	BN_from_montgomery(r[0][1][0], a[0][1][0], mont, ctx);
+	BN_from_montgomery(r[0][1][1], a[0][1][1], mont, ctx);
+
+	BN_from_montgomery(r[1][0][0], a[1][0][0], mont, ctx);
+	BN_from_montgomery(r[1][0][1], a[1][0][1], mont, ctx);
+	BN_from_montgomery(r[1][1][0], a[1][1][0], mont, ctx);
+	BN_from_montgomery(r[1][1][1], a[1][1][1], mont, ctx);
+
+	BN_from_montgomery(r[2][0][0], a[2][0][0], mont, ctx);
+	BN_from_montgomery(r[2][0][1], a[2][0][1], mont, ctx);
+	BN_from_montgomery(r[2][1][0], a[2][1][0], mont, ctx);
+	BN_from_montgomery(r[2][1][1], a[2][1][1], mont, ctx);
+
+	return 1;
+}
+
+
+
 
 #if SM9_TEST
 static int fp12_test(const BIGNUM *p, BN_CTX *ctx)
@@ -2309,6 +2424,22 @@ int point_mul_generator(point_t *R, const BIGNUM *k, const BIGNUM *p, BN_CTX *ct
 	return point_mul(R, k, &G, p, ctx);
 }
 
+static int point_to_montgomery(point_t *R, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp2_to_montgomery(R->X, R->X, mont, ctx);
+	fp2_to_montgomery(R->Y, R->Y, mont, ctx);
+	fp2_to_montgomery(R->Z, R->Z, mont, ctx);
+	return 1;
+}
+
+static int point_from_montgomery(point_t *R, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp2_from_montgomery(R->X, R->X, mont, ctx);
+	fp2_from_montgomery(R->Y, R->Y, mont, ctx);
+	fp2_from_montgomery(R->Z, R->Z, mont, ctx);
+	return 1;
+}
+
 #if SM9_TEST
 static int point_test(const BIGNUM *p, BN_CTX *ctx)
 {
@@ -2413,7 +2544,7 @@ static int point_test(const BIGNUM *p, BN_CTX *ctx)
 #endif
 
 static int point_dbl_eval_tangent(fp12_t r, point_t *T, const BIGNUM *xP, const BIGNUM *yP,
-	const BIGNUM *p, BN_CTX *ctx)
+	const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
 {
 	int ret = 1;
 	fp2_t t0, t1, t2, t3;
@@ -2430,48 +2561,53 @@ static int point_dbl_eval_tangent(fp12_t r, point_t *T, const BIGNUM *xP, const 
 		return 0;
 	}
 
-	if (// t0 = 2 * Y^2 
-		!fp2_sqr(t0, T->Y, p, ctx)
-	|| !fp2_dbl(t0, t0, p)
+	// t0 = 2 * Y^2 
+	fp2_sqr_montgomery(t0, T->Y, p, mont, ctx);
+	fp2_dbl(t0, t0, p);
+
+
+
 
 	// t1 = 2 * t0 * X
-	|| !fp2_mul(t1, t0, T->X, p, ctx)
-	|| !fp2_dbl(t1, t1, p)
+	fp2_mul_montgomery(t1, t0, T->X, p, mont, ctx);
+	fp2_dbl(t1, t1, p);
 
 	// t3 = 3 * X^2
-	|| !fp2_sqr(t3, T->X, p, ctx)
-	|| !fp2_dbl(t2, t3, p)
-	|| !fp2_add(t3, t3, t2, p)
+	fp2_sqr_montgomery(t3, T->X, p, mont, ctx);
+	fp2_dbl(t2, t3, p);
+	fp2_add(t3, t3, t2, p);
 
 	// t2 = 2 * t0^2
-	|| !fp2_sqr(t2, t0, p, ctx)
-	|| !fp2_dbl(t2, t2, p)
+	fp2_sqr_montgomery(t2, t0, p, mont, ctx);
+	fp2_dbl(t2, t2, p);
 
-	|| !fp2_mul(r[0][0], t3, T->X, p, ctx)
-	|| !fp2_sub(r[0][0], r[0][0], t0, p)
+
+	fp2_mul_montgomery(r[0][0], t3, T->X, p, mont, ctx);
+
+
+
+	fp2_sub(r[0][0], r[0][0], t0, p);
 	
 	// Z3 = 2 * Y * Z
-	|| !fp2_sqr(t0, T->Z, p, ctx)
-	|| !fp2_mul(T->Z, T->Y, T->Z, p, ctx)
-	|| !fp2_dbl(T->Z, T->Z, p)
+	fp2_sqr_montgomery(t0, T->Z, p, mont, ctx);
+	fp2_mul_montgomery(T->Z, T->Y, T->Z, p, mont, ctx);
+	fp2_dbl(T->Z, T->Z, p);
 
-	|| !fp2_sqr(T->X, t3, p, ctx)
-	|| !fp2_sub(T->X, T->X, t1, p)
-	|| !fp2_sub(T->X, T->X, t1, p)
+	fp2_sqr_montgomery(T->X, t3, p, mont, ctx);
+	fp2_sub(T->X, T->X, t1, p);
+	fp2_sub(T->X, T->X, t1, p);
 
-	|| !fp2_sub(T->Y, t1, T->X, p)
-	|| !fp2_mul(T->Y, T->Y, t3, p, ctx)
-	|| !fp2_sub(T->Y, T->Y, t2, p)
+	fp2_sub(T->Y, t1, T->X, p);
+	fp2_mul_montgomery(T->Y, T->Y, t3, p, mont, ctx);
+	fp2_sub(T->Y, T->Y, t2, p);
 
-	|| !fp2_mul(r[2][0], t0, t3, p, ctx)
-	|| !fp2_mul_num(r[2][0], r[2][0], xP, p, ctx)
-	|| !fp2_neg(r[2][0], r[2][0], p)
+	fp2_mul_montgomery(r[2][0], t0, t3, p, mont, ctx);
+	fp2_mul_num_montgomery(r[2][0], r[2][0], xP, mont, ctx);
+	fp2_neg(r[2][0], r[2][0], p);
 
-	|| !fp2_mul(r[0][1], t0, T->Z, p, ctx)
-	|| !fp2_mul_num(r[0][1], r[0][1], yP, p, ctx)){
-		BN_CTX_end(ctx);
-		return 0;
-	}
+	fp2_mul_montgomery(r[0][1], t0, T->Z, p, mont, ctx);
+	fp2_mul_num_montgomery(r[0][1], r[0][1], yP, mont, ctx);
+
 	BN_CTX_end(ctx);
 	return 1;
 }
@@ -2671,20 +2807,38 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 	int i, n;
 	point_t T, Q1, Q2;
 	fp12_t g;
+	BIGNUM *xP_mont, *yP_mont;
+
+	BN_MONT_CTX *mont = BN_MONT_CTX_new();
 	BN_CTX_start(ctx);
 
 	point_init(&T, ctx);
 	point_init(&Q1, ctx);
 	point_init(&Q2, ctx);
 	fp12_init(g, ctx);
+	xP_mont = BN_CTX_get(ctx);
+	yP_mont = BN_CTX_get(ctx);
+
+	BN_MONT_CTX_set(mont, p, ctx);
+
+	BN_to_montgomery(xP_mont, xP, mont, ctx);
+	BN_to_montgomery(yP_mont, yP, mont, ctx);
 
 	fp12_set_one(f);
 	point_copy(&T, Q);
 
 	n = BN_num_bits(a);
 	for (i = n - 2; i >= 0; i--) {
+		point_to_montgomery(&T, mont, ctx);
 
-		point_dbl_eval_tangent(g, &T, xP, yP, p, ctx);
+		point_dbl_eval_tangent(g, &T, xP_mont, yP_mont, p, mont, ctx);
+
+		point_from_montgomery(&T, mont, ctx);
+		
+		fp2_from_montgomery(g[2][0], g[2][0], mont, ctx);
+		fp2_from_montgomery(g[0][0], g[0][0], mont, ctx);
+		fp2_from_montgomery(g[0][1], g[0][1], mont, ctx);
+
 		fp12_sqr(f, f, p, ctx);
 		fp12_mul(f, f, g, p, ctx);
 
