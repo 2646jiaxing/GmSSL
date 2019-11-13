@@ -310,6 +310,36 @@ static int fp2_mul_u(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_
     BN_CTX_end(ctx);
     return 1;
 }
+
+static int fp2_mul_u_montgomery(fp2_t r, const fp2_t a, const fp2_t b, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+    BIGNUM *r0, *r1, *t;
+    BN_CTX_start(ctx);
+    
+    if (!(r0 = BN_CTX_get(ctx))
+        || !(r1 = BN_CTX_get(ctx))
+        || !(t = BN_CTX_get(ctx))
+
+        /* r0 = -2 * (a0 * b1 + a1 * b0), r1 = a0 * b0 - 2 * a1 * b1 */
+        || !BN_mod_add_quick(r0, a[0], a[1], p)
+        || !BN_mod_add_quick(r1, b[0], b[1], p)
+        || !BN_mod_mul_montgomery(r0, r0, r1, mont, ctx)
+        || !BN_mod_mul_montgomery(r1, a[0], b[0], mont, ctx)
+        || !BN_mod_sub_quick(r0, r0, r1, p)
+        || !BN_mod_mul_montgomery(t, a[1], b[1], mont, ctx)
+        || !BN_mod_sub_quick(r0, r0, t, p)
+        || !BN_mod_lshift1_quick(t, t, p)
+        || !BN_mod_sub_quick(r[1], r1, t, p)
+        || !BN_mod_lshift1_quick(r0, r0, p)
+        || !BN_sub(r[0], p, r0)
+        ) {
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
+}
+
 static int fp2_mul_num(fp2_t r, const fp2_t a, const BIGNUM *n, const BIGNUM *p, BN_CTX *ctx)
 {
 	if (!BN_mod_mul(r[0], a[0], n, p, ctx)
@@ -399,6 +429,32 @@ static int fp2_sqr_u(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
     return 1;
 }
 
+static int fp2_sqr_u_montgomery(fp2_t r, const fp2_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+    BIGNUM *r0, *r1;
+    BN_CTX_start(ctx);
+    
+    if (!(r0 = BN_CTX_get(ctx))
+        || !(r1 = BN_CTX_get(ctx))
+        
+        /* r1 = a0^2 - 2 * a1^2, r0 = -4 * a0 * a1 */
+        || !BN_mod_mul_montgomery(r1, a[0], a[0], mont, ctx)
+        || !BN_mod_mul_montgomery(r0, a[1], a[1], mont, ctx)
+        || !BN_mod_lshift1_quick(r0, r0, p)
+        || !BN_mod_mul_montgomery(r[0], a[0], a[1], mont, ctx)
+        || !BN_mod_lshift1_quick(r[0], r[0], p)
+        || !BN_mod_lshift1_quick(r[0], r[0], p)
+        || !BN_sub(r[0], p, r[0])
+        || !BN_mod_sub_quick(r[1], r1, r0, p)) {
+        
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
+}
+
+
 static int fp2_inv(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
 {
 	if (BN_is_zero(a[0])) {
@@ -445,6 +501,60 @@ static int fp2_inv(fp2_t r, const fp2_t a, const BIGNUM *p, BN_CTX *ctx)
 	}
 	return 1;
 }
+
+static int fp2_inv_montgomery(fp2_t r, const fp2_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	if (BN_is_zero(a[0])) {
+		/* r0 = 0 */
+		BN_zero(r[0]);
+		/* r1 = -(2 * a1)^-1 */
+		if (!BN_mod_lshift1_quick(r[1], a[1], p)
+			|| !BN_to_montgomery(r[1], r[1], mont, ctx)
+			|| !BN_mod_inverse(r[1], r[1], p, ctx)
+			|| !BN_from_montgomery(r[1], r[1], mont, ctx)
+			|| !BN_sub(r[1], p, r[1])) {
+			return 0;
+		}
+
+	} else if (BN_is_zero(a[1])) {
+		/* r1 = 0 */
+		BN_zero(r[1]);
+		/* r0 = a0^-1 */
+		if (!BN_to_montgomery(r[0], a[0], mont, ctx)
+			|| !BN_mod_inverse(r[0], r[0], p, ctx)
+			|| !BN_from_montgomery(r[0], r[0], mont, ctx)) {
+			return 0;
+		}
+
+	} else {
+        BIGNUM *k, *t;
+        BN_CTX_start(ctx);
+        
+		if (!(k = BN_CTX_get(ctx))
+			|| !(t = BN_CTX_get(ctx))
+
+			/* k = (a[0]^2 + 2 * a[1]^2)^-1 */
+			|| !BN_mod_mul_montgomery(k, a[0], a[0], mont, ctx)
+			|| !BN_mod_mul_montgomery(t, a[1], a[1], mont, ctx)
+			|| !BN_mod_lshift1_quick(t, t, p)
+			|| !BN_mod_add_quick(k, k, t, p)
+			|| !BN_to_montgomery(k, k, mont, ctx)
+			|| !BN_mod_inverse(k, k, p, ctx)
+			|| !BN_from_montgomery(k, k, mont, ctx)
+
+			/* r[0] = a[0] * k, r[1] = -a[1] * k */
+			|| !BN_mod_mul_montgomery(r[0], a[0], k, mont, ctx)
+			|| !BN_mod_mul_montgomery(r[1], a[1], k, mont, ctx)
+			|| !BN_sub(r[1], p, r[1])) {
+
+            BN_CTX_end(ctx);
+			return 0;
+		}
+        BN_CTX_end(ctx);
+	}
+	return 1;
+}
+
 
 static int fp2_conj(fp2_t r, const fp2_t a, const BIGNUM *p)
 {
@@ -797,6 +907,36 @@ static int fp4_mul(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_CT
 	return 1;
 }
 
+static int fp4_mul_montgomery(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp2_t r0, r1, t;
+    BN_CTX_start(ctx);
+
+	fp2_init(r0, ctx);
+	fp2_init(r1, ctx);
+
+	if (!fp2_init(t, ctx)
+        
+		/* r0 = a0 * b0 + a1 * b1 * u, r[1] = a[0] * b[1] + a[1] * b[0] */
+		|| !fp2_add(r0, a[0], a[1], p)
+        || !fp2_add(r1, b[0], b[1], p)
+        || !fp2_mul_montgomery(r1, r0, r1, p, mont, ctx)
+        || !fp2_mul_montgomery(r0, a[0], b[0], p, mont, ctx)
+        || !fp2_sub(r1, r1, r0, p)
+        || !fp2_mul_montgomery(t, a[1], b[1], p, mont, ctx)
+        || !fp2_sub(r[1], r1, t, p)
+        || !BN_mod_lshift1_quick(r1[0], t[1], p)
+        || !BN_sub(r1[0], p, r1[0])
+        || !BN_copy(r1[1], t[0])
+        || !fp2_add(r[0], r0, r1, p)) {
+		
+        BN_CTX_end(ctx);
+		return 0;
+	}
+    BN_CTX_end(ctx);
+	return 1;
+}
+
 static int fp4_mul_v(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_CTX *ctx)
 {
 	fp2_t r0, r1, t;
@@ -828,6 +968,39 @@ static int fp4_mul_v(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_
     BN_CTX_end(ctx);
 	return 1;
 }
+
+static int fp4_mul_v_montgomery(fp4_t r, const fp4_t a, const fp4_t b, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp2_t r0, r1, t;
+    BN_CTX_start(ctx);
+    
+	fp2_init(r0, ctx);
+	fp2_init(r1, ctx);
+	if (!fp2_init(t, ctx)
+        
+		/* r0 = a0 * b1 * u + a1 * b0 * u, r1 = a0 * b0 + a1 * b1 * u */
+		|| !fp2_add(r0, a[0], a[1], p)
+        || !fp2_add(r1, b[0], b[1], p)
+        || !fp2_mul_montgomery(r0, r0, r1, p, mont, ctx)
+        || !fp2_mul_montgomery(r1, a[0], b[0], p, mont, ctx)
+        || !fp2_sub(r0, r0, r1, p)
+        || !fp2_mul_montgomery(t, a[1], b[1], p, mont, ctx)
+        || !fp2_sub(r0, r0, t, p)
+        || !BN_mod_lshift1_quick(r[0][0], r0[1], p)
+        || !BN_sub(r[0][0], p, r[0][0])
+        || !BN_copy(r[0][1], r0[0])
+        || !BN_mod_lshift1_quick(r0[0], t[1], p)
+        || !BN_sub(r0[0], p, r0[0])
+        || !BN_copy(r0[1], t[0])
+        || !fp2_add(r[1], r1, r0, p)) {
+		
+        BN_CTX_end(ctx);
+		return 0;
+	}
+    BN_CTX_end(ctx);
+	return 1;
+}
+
 
 static int fp4_mul_v_only(fp4_t r, fp4_t a, const BIGNUM *p)
 {
@@ -863,6 +1036,27 @@ static int fp4_sqr(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
 	return 1;
 }
 
+static int fp4_sqr_montgomery(fp4_t r, const fp4_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp2_t r0, r1;
+    BN_CTX_start(ctx);
+    
+	fp2_init(r0, ctx);
+	fp2_init(r1, ctx);
+	if (/* r0 = a0^2 + a1^2 * u, r1 = 2 * (a0 * a1) */
+        !fp2_sqr_montgomery(r0, a[0], p, mont, ctx)
+        || !fp2_sqr_u_montgomery(r1, a[1], p, mont, ctx)
+        || !fp2_mul_montgomery(r[1], a[0], a[1], p, mont, ctx)
+        || !fp2_dbl(r[1], r[1], p)
+        || !fp2_add(r[0], r0, r1, p)) {
+		
+        BN_CTX_end(ctx);
+		return 0;
+	}
+    BN_CTX_end(ctx);
+	return 1;
+}
+
 static int fp4_sqr_v(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
 {
 	fp2_t r0, r1;
@@ -875,6 +1069,27 @@ static int fp4_sqr_v(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
         !fp2_sqr(r1, a[0], p, ctx)
 		|| !fp2_sqr_u(r0, a[1], p, ctx)
         || !fp2_mul_u(r[0], a[0], a[1], p, ctx)
+        || !fp2_dbl(r[0], r[0], p)
+        || !fp2_add(r[1], r0, r1, p)) {
+        BN_CTX_end(ctx);
+		return 0;
+	}
+    BN_CTX_end(ctx);
+	return 1;
+}
+
+static int fp4_sqr_v_montgomery(fp4_t r, const fp4_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp2_t r0, r1;
+    BN_CTX_start(ctx);
+    
+	fp2_init(r0, ctx);
+	fp2_init(r1, ctx);
+	if (
+		/* r0 = 2 * (a0 * a1) * u, r1 = a0^2 + a1^2 * u */
+        !fp2_sqr_montgomery(r1, a[0], p, mont, ctx)
+		|| !fp2_sqr_u_montgomery(r0, a[1], p, mont, ctx)
+        || !fp2_mul_u_montgomery(r[0], a[0], a[1], p, mont, ctx)
         || !fp2_dbl(r[0], r[0], p)
         || !fp2_add(r[1], r0, r1, p)) {
         BN_CTX_end(ctx);
@@ -903,6 +1118,33 @@ static int fp4_inv(fp4_t r, const fp4_t a, const BIGNUM *p, BN_CTX *ctx)
 
 		/* r1 = a1 * k */
 		|| !fp2_mul(r[1], a[1], k, p, ctx)) {
+        BN_CTX_end(ctx);
+		return 0;
+	}
+    
+    BN_CTX_end(ctx);
+	return 1;
+}
+
+static int fp4_inv_montgomery(fp4_t r, const fp4_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp2_t t, k;
+    BN_CTX_start(ctx);
+    
+	fp2_init(t, ctx);
+	if (!fp2_init(k, ctx)
+		/* k = (a1^2 * u - a0^2)^-1 */
+		|| !fp2_sqr_u(k, a[1], p, ctx)
+		|| !fp2_sqr(t, a[0], p, ctx)
+		|| !fp2_sub(k, k, t, p)
+		|| !fp2_inv_montgomery(k, k, p, mont, ctx)
+
+		/* r0 = -(a0 * k) */
+		|| !fp2_mul_montgomery(t, a[0], k, p, mont, ctx)
+		|| !fp2_neg(r[0], t, p)
+
+		/* r1 = a1 * k */
+		|| !fp2_mul_montgomery(r[1], a[1], k, p, mont, ctx)) {
         BN_CTX_end(ctx);
 		return 0;
 	}
@@ -1337,6 +1579,55 @@ int fp12_mul(fp12_t r, const fp12_t a, const fp12_t b, const BIGNUM *p, BN_CTX *
 	return 1;
 }
 
+int fp12_mul_montgomery(fp12_t r, const fp12_t a, const fp12_t b, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp4_t r0, r1, r2, t0, t1, t2;
+    BN_CTX_start(ctx);
+	fp4_init(r0, ctx);
+	fp4_init(r1, ctx);
+	fp4_init(r2, ctx);
+
+	if (!fp4_init(t0, ctx)
+        || !fp4_init(t1, ctx)
+        || !fp4_init(t2, ctx)
+		
+        || !fp4_mul_montgomery(t0, a[0], b[0], p, mont, ctx)
+        || !fp4_mul_montgomery(t1, a[1], b[1], p, mont, ctx)
+        || !fp4_mul_montgomery(t2, a[2], b[2], p, mont, ctx)
+        
+        || !fp4_add(r0, a[1], a[2], p)
+        || !fp4_add(r1, b[1], b[2], p)
+        || !fp4_mul_montgomery(r0, r0, r1, p, mont, ctx)
+        || !fp4_sub(r0, r0, t1, p)
+        || !fp4_sub(r0, r0, t2, p)
+        || !fp4_mul_v_only(r0, r1, p)
+        
+        || !fp4_add(r1, a[0], a[1], p)
+        || !fp4_add(r2, b[0], b[1], p)
+        || !fp4_mul_montgomery(r1, r1, r2, p, mont, ctx)
+        || !fp4_sub(r1, r1, t0, p)
+        || !fp4_sub(r[1], r1, t1, p)
+        
+        || !fp4_add(r2, a[0], a[2], p)
+        || !fp4_add(r1, b[0], b[2], p)
+        || !fp4_mul_montgomery(r2, r1, r2, p, mont, ctx)
+        || !fp4_sub(r2, r2, t0, p)
+        || !fp4_sub(r2, r2, t2, p)
+        || !fp4_add(r[2], r2, t1, p)
+        
+        || !fp4_add(r[0], r0, t0, p)
+        || !fp4_mul_v_only(t2, t0, p)
+        || !fp4_add(r[1], r[1], t2, p)
+        ) {
+
+        BN_CTX_end(ctx);
+		return 0;
+	}
+    BN_CTX_end(ctx);
+	return 1;
+}
+
+
 static int fp12_sqr(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 {
 	fp4_t r0, r1, r2;
@@ -1362,6 +1653,43 @@ static int fp12_sqr(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
         || !fp4_mul(r2, a[0], a[2], p, ctx)
         || !fp4_dbl(r2, r2, p)
         || !fp4_sqr(r[2], a[1], p, ctx)
+        || !fp4_add(r[2], r2, r[2], p)
+		
+
+		|| !fp4_copy(r[0], r0)
+        || !fp4_copy(r[1], r1)) {
+        BN_CTX_end(ctx);
+		return 0;
+	}
+    BN_CTX_end(ctx);
+	return 1;
+}
+
+static int fp12_sqr_montgomery(fp12_t r, const fp12_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	fp4_t r0, r1, r2;
+    
+    BN_CTX_start(ctx);
+	fp4_init(r0, ctx);
+	fp4_init(r1, ctx);
+	fp4_init(r2, ctx);
+	if (
+		/* r0 = a0^2 + 2*a1*a2*v */
+		!fp4_sqr_montgomery(r0, a[0], p, mont, ctx)
+		|| !fp4_mul_v_montgomery(r1, a[1], a[2], p, mont, ctx)
+		|| !fp4_dbl(r1, r1, p)
+		|| !fp4_add(r0, r0, r1, p)
+
+		/* r1 = 2*a0*a1 + a^2 * v */
+		|| !fp4_mul_montgomery(r1, a[0], a[1], p, mont, ctx)
+		|| !fp4_dbl(r1, r1, p)
+		|| !fp4_sqr_v_montgomery(r2, a[2], p, mont, ctx)
+        || !fp4_add(r1, r1, r2, p)
+        
+        /* r2 = 2*a0*a2 + a1^2*/
+        || !fp4_mul_montgomery(r2, a[0], a[2], p, mont, ctx)
+        || !fp4_dbl(r2, r2, p)
+        || !fp4_sqr_montgomery(r[2], a[1], p, mont, ctx)
         || !fp4_add(r[2], r2, r[2], p)
 		
 
@@ -1470,6 +1798,101 @@ static int fp12_inv(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 	return 1;
 }
 
+static int fp12_inv_montgomery(fp12_t r, const fp12_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	if (fp4_is_zero(a[2])) {
+		fp4_t k;
+		fp4_t t;
+        BN_CTX_start(ctx);
+		if (!fp4_init(t, ctx)) {
+			return 0;
+		}
+
+		fp4_t r0, r1, r2;
+		fp4_init(r0, ctx);
+		fp4_init(r1, ctx);
+		fp4_init(r2, ctx);
+
+		if (!(fp4_init(k, ctx))
+			/* k = (a0^3 + a1^3 * v)^-1 */
+			|| !fp4_sqr_montgomery(k, a[0], p, mont, ctx)
+			|| !fp4_mul_montgomery(k, k, a[0], p, mont, ctx)
+			|| !fp4_sqr_v_montgomery(t, a[1], p, mont, ctx)
+			|| !fp4_mul_montgomery(t, t, a[1], p, mont, ctx)
+			|| !fp4_add(k, k, t, p)
+			|| !fp4_inv_montgomery(k, k, p, mont, ctx)
+
+			/* r2 = a1^2 * k */
+			|| !fp4_sqr_montgomery(r[2], a[1], p, mont, ctx)
+			|| !fp4_mul_montgomery(r[2], r[2], k, p, mont, ctx)
+
+			/* r1 = -(a0 * a1 * k) */
+			|| !fp4_mul_montgomery(r[1], a[0], a[1], p, mont, ctx)
+			|| !fp4_mul_montgomery(r[1], r[1], k, p, mont, ctx)
+			|| !fp4_neg(r[1], r[1], p)
+
+			/* r0 = a0^2 * k */
+			|| !fp4_sqr_montgomery(r[0], a[0], p, mont, ctx)
+			|| !fp4_mul_montgomery(r[0], r[0], k, p, mont, ctx)
+
+			) {
+            BN_CTX_end(ctx);
+			return 0;
+		}
+        BN_CTX_end(ctx);
+		return 1;
+
+	} else {
+
+		fp4_t t0, t1, t2, t3;
+        BN_CTX_start(ctx);
+
+		if (!(fp4_init(t0, ctx))
+			|| !(fp4_init(t1, ctx)) //FIXME
+			|| !(fp4_init(t2, ctx))
+			|| !(fp4_init(t3, ctx))
+
+			/* t0 = a1^2 - a0 * a2 */
+			|| !fp4_sqr_montgomery(t0, a[1], p, mont, ctx)
+			|| !fp4_mul_montgomery(t1, a[0], a[2], p, mont, ctx)
+			|| !fp4_sub(t0, t0, t1, p)
+
+			/* t1 = a0 * a1 - a2^2 * v */
+			|| !fp4_mul_montgomery(t1, a[0], a[1], p, mont, ctx)
+			|| !fp4_sqr_v_montgomery(t2, a[2], p, mont, ctx)
+			|| !fp4_sub(t1, t1, t2, p)
+
+			/* t2 = a0^2 - a1 * a2 * v */
+			|| !fp4_sqr_montgomery(t2, a[0], p, mont, ctx)
+			|| !fp4_mul_v_montgomery(t3, a[1], a[2], p, mont, ctx)
+			|| !fp4_sub(t2, t2, t3, p)
+
+			/* t3 = a2 * (t1^2 - t0 * t2)^-1 */
+			|| !fp4_sqr_montgomery(t3, t1, p, mont, ctx)
+			|| !fp4_mul_montgomery(r[0], t0, t2, p, mont, ctx)
+			|| !fp4_sub(t3, t3, r[0], p)
+			|| !fp4_inv_montgomery(t3, t3, p, mont, ctx)
+			|| !fp4_mul_montgomery(t3, a[2], t3, p, mont, ctx)
+
+			/* r0 = t2 * t3 */
+			|| !fp4_mul_montgomery(r[0], t2, t3, p, mont, ctx)
+
+			/* r1 = -(t1 * t3) */
+			|| !fp4_mul_montgomery(r[1], t1, t3, p, mont, ctx)
+			|| !fp4_neg(r[1], r[1], p)
+
+			/* r2 = t0 * t3 */
+			|| !fp4_mul_montgomery(r[2], t0, t3, p, mont, ctx)
+			) {
+            BN_CTX_end(ctx);
+			return 0;
+		}
+        BN_CTX_end(ctx);
+		return 1;
+	}
+	return 1;
+}
+
 //TODO: check this!
 static int fp12_div(fp12_t r, const fp12_t a, const fp12_t b, const BIGNUM *p, BN_CTX *ctx)
 {
@@ -1548,6 +1971,41 @@ static int fp12_sqr_cyclotomic(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX
     return 1;
 }
 
+static int fp12_sqr_cyclotomic_montgomery(fp12_t r, const fp12_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+    fp4_t t0, t1, t2;
+    BN_CTX_start(ctx);
+    fp4_init(t0, ctx);
+    fp4_init(t1, ctx);
+    fp4_init(t2, ctx);
+    
+    if (!fp4_sqr_montgomery(t0, a[0], p, mont, ctx)
+        || !fp4_dbl(t1, t0, p)
+        || !fp4_add(t0, t0, t1, p)
+        || !fp4_conj(t1, a[0], p)
+        || !fp4_dbl(t1, t1, p)
+        || !fp4_sub(r[0], t0, t1, p)
+        
+        || !fp4_sqr_v_montgomery(t0, a[2], p, mont, ctx)
+        || !fp4_dbl(t1, t0, p)
+        || !fp4_add(t0, t0, t1, p)
+        || !fp4_conj(t1, a[1], p)
+        || !fp4_dbl(t1, t1, p)
+        || !fp4_sqr_montgomery(t2, a[1], p, mont, ctx)
+        || !fp4_add(r[1], t0, t1, p)
+        
+        || !fp4_dbl(t0, t2, p)
+        || !fp4_add(t0, t0, t2, p)
+        || !fp4_conj(t1, a[2], p)
+        || !fp4_dbl(t1, t1, p)
+        || !fp4_sub(r[2], t0, t1, p)){
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
+}
+
 static int fp12_pow_cyclotomic_of_x(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
 {
     char trace[] = "1011000111110011000101";
@@ -1572,6 +2030,34 @@ static int fp12_pow_cyclotomic_of_x(fp12_t r, const fp12_t a, const BIGNUM *p, B
         }
     }
     fp12_sqr_cyclotomic(r, t, p, ctx);
+    BN_CTX_end(ctx);
+    return 1;
+}
+
+static int fp12_pow_cyclotomic_of_x_montgomery(fp12_t r, const fp12_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+    char trace[] = "1011000111110011000101";
+    int i;
+    fp12_t t;
+    BN_CTX_start(ctx);
+    fp12_init(t, ctx);
+    
+    if (!fp12_sqr_cyclotomic_montgomery(t, a, p, mont, ctx)
+        || !fp12_mul_montgomery(t, t, a, p, mont, ctx)){
+        return 0;
+    }
+    
+    for (i = 0; i < 38; i++){
+        fp12_sqr_cyclotomic_montgomery(t, t, p, mont, ctx);
+    }
+    
+    for (i = 0; i < 22; i++){
+        fp12_sqr_cyclotomic_montgomery(t, t, p, mont, ctx);
+        if (trace[i] == '1'){
+            fp12_mul_montgomery(t, t, a, p, mont, ctx);
+        }
+    }
+    fp12_sqr_cyclotomic_montgomery(r, t, p, mont, ctx);
     BN_CTX_end(ctx);
     return 1;
 }
@@ -2424,19 +2910,19 @@ int point_mul_generator(point_t *R, const BIGNUM *k, const BIGNUM *p, BN_CTX *ct
 	return point_mul(R, k, &G, p, ctx);
 }
 
-static int point_to_montgomery(point_t *R, BN_MONT_CTX *mont, BN_CTX *ctx)
+static int point_to_montgomery(point_t *R, const point_t *P, BN_MONT_CTX *mont, BN_CTX *ctx)
 {
-	fp2_to_montgomery(R->X, R->X, mont, ctx);
-	fp2_to_montgomery(R->Y, R->Y, mont, ctx);
-	fp2_to_montgomery(R->Z, R->Z, mont, ctx);
+	fp2_to_montgomery(R->X, P->X, mont, ctx);
+	fp2_to_montgomery(R->Y, P->Y, mont, ctx);
+	fp2_to_montgomery(R->Z, P->Z, mont, ctx);
 	return 1;
 }
 
-static int point_from_montgomery(point_t *R, BN_MONT_CTX *mont, BN_CTX *ctx)
+static int point_from_montgomery(point_t *R, const point_t *P, BN_MONT_CTX *mont, BN_CTX *ctx)
 {
-	fp2_from_montgomery(R->X, R->X, mont, ctx);
-	fp2_from_montgomery(R->Y, R->Y, mont, ctx);
-	fp2_from_montgomery(R->Z, R->Z, mont, ctx);
+	fp2_from_montgomery(R->X, P->X, mont, ctx);
+	fp2_from_montgomery(R->Y, P->Y, mont, ctx);
+	fp2_from_montgomery(R->Z, P->Z, mont, ctx);
 	return 1;
 }
 
@@ -2670,6 +3156,63 @@ static int point_add_eval_line(fp12_t r, point_t *T, const point_t *Q, const BIG
 
 }
 
+static int point_add_eval_line_montgomery(fp12_t r, point_t *T, const point_t *Q, const BIGNUM *xP,
+	const BIGNUM *yP, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+	int ret = 1;
+	fp2_t t0, t1, t2, t3, t4;
+	fp12_set_zero(r);
+	BN_CTX_start(ctx);
+
+	ret &= fp2_init(t0, ctx);
+	ret &= fp2_init(t1, ctx);
+	ret &= fp2_init(t2, ctx);
+	ret &= fp2_init(t3, ctx);
+	ret &= fp2_init(t4, ctx);
+
+	if (!ret){
+		BN_CTX_end(ctx);
+		return 0;
+	}
+
+	if (
+		!fp2_sqr_montgomery(t0, T->Z, p, mont, ctx)
+		|| !fp2_mul_montgomery(t1, t0, T->Z, p, mont, ctx)
+		|| !fp2_mul_montgomery(t0, Q->X, t0, p, mont, ctx)
+		|| !fp2_mul_montgomery(t1, Q->Y, t1, p, mont, ctx)
+		|| !fp2_sub(t0, t0, T->X, p)
+		|| !fp2_sub(t1, t1, T->Y, p)
+		|| !fp2_sqr_montgomery(t2, t0, p, mont, ctx)
+		|| !fp2_mul_montgomery(t3, t2, t0, p, mont, ctx)
+		|| !fp2_mul_montgomery(t4, T->X, t2, p, mont, ctx)
+		|| !fp2_sqr_montgomery(T->X, t1, p, mont, ctx)
+		|| !fp2_sub(T->X, T->X, t3, p)
+		|| !fp2_sub(T->X, T->X, t4, p)
+		|| !fp2_sub(T->X, T->X, t4, p)
+
+		|| !fp2_mul_montgomery(t2, T->Y, t3, p, mont, ctx)
+		|| !fp2_sub(T->Y, t4, T->X, p)
+		|| !fp2_mul_montgomery(T->Y, T->Y, t1, p, mont, ctx)
+		|| !fp2_sub(T->Y, T->Y, t2, p)
+
+		|| !fp2_mul_montgomery(T->Z, T->Z, t0, p, mont, ctx)
+		
+		|| !fp2_mul_num_montgomery(r[2][0], t1, xP, mont, ctx)
+		|| !fp2_neg(r[2][0], r[2][0], p)
+
+		|| !fp2_mul_montgomery(t2, T->Z, Q->Y, p, mont, ctx)
+		|| !fp2_mul_num_montgomery(r[0][1], T->Z, yP, mont, ctx)
+		
+		|| !fp2_mul_montgomery(r[0][0], Q->X, t1, p, mont, ctx)
+		|| !fp2_sub(r[0][0], r[0][0], t2, p)){
+			BN_CTX_end(ctx);
+			return 0;
+		}
+		BN_CTX_end(ctx);
+		return 1;
+
+}
+
 
 static int frobenius_simultaneously(point_t *R1, point_t *R2, const point_t *P, const BIGNUM *p, BN_CTX *ctx)
 {
@@ -2799,13 +3342,87 @@ static int final_exp(fp12_t r, const fp12_t a, const BIGNUM *p, BN_CTX *ctx)
     return 1;
 }
 
+static int final_exp_montgomery(fp12_t r, const fp12_t a, const BIGNUM *p, BN_MONT_CTX *mont, BN_CTX *ctx)
+{
+    fp12_t m, t0, t1, mx1, mx2, mx3;
+    BN_CTX_start(ctx);
+    fp12_init(m, ctx);
+    fp12_init(t0, ctx);
+    fp12_init(t1, ctx);
+    fp12_init(mx1, ctx);
+    fp12_init(mx2, ctx);
+    fp12_init(mx3, ctx);
+
+    if (/* m = a^{(p^6-1)(p^2+1)} */
+		!fp12_from_montgomery(t0, a, mont, ctx)
+        || !fp12_inv(t0, t0, p, ctx)
+		|| !fp12_to_montgomery(t0, t0, mont, ctx)
+        || !fp12_frobenius_p6(t1, a, p, ctx)
+        || !fp12_mul_montgomery(t1, t1, t0, p, mont, ctx)
+        || !fp12_frobenius_p2(m, t1, p, ctx)
+        || !fp12_mul_montgomery(m, m, t1, p, mont, ctx)
+
+        /* mx1 = m^x, mx2 = m^(x^2), mx3 = m^(x^3) */
+        || !fp12_pow_cyclotomic_of_x_montgomery(mx1, m, p, mont, ctx)
+        || !fp12_pow_cyclotomic_of_x_montgomery(mx2, mx1, p, mont, ctx)
+        || !fp12_pow_cyclotomic_of_x_montgomery(mx3, mx2, p, mont, ctx)
+
+        /* t1 = y6, t0 = y6^2 */
+        || !fp12_frobenius_p1(t1, mx3, p, ctx)
+        || !fp12_mul_montgomery(t1, mx3, t1, p, mont, ctx)
+        || !fp12_frobenius_p6(t1, t1, p, ctx)
+        || !fp12_sqr_cyclotomic_montgomery(t0, t1, p, mont, ctx)
+
+        /* t1 = y4, t0 = t0 * y4 */
+        || !fp12_frobenius_p1(t1, mx2, p, ctx)
+        || !fp12_mul_montgomery(t1, mx1, t1, p, mont, ctx)
+        || !fp12_frobenius_p6(t1, t1, p, ctx)
+        || !fp12_mul_montgomery(t0, t0, t1, p, mont, ctx)
+
+        /* t1 = y5, t0 = t0 * y5 */
+        || !fp12_frobenius_p6(t1, mx2, p, ctx)
+        || !fp12_mul_montgomery(t0, t0, t1, p, mont, ctx)
+
+        /* mx3 = y3, t1 = y5 * y3, t1 = t1 * t0 */
+        || !fp12_frobenius_p1(mx3, mx1, p, ctx)
+        || !fp12_frobenius_p6(mx3, mx3, p, ctx)
+        || !fp12_mul_montgomery(t1, t1, mx3, p, mont, ctx)
+        || !fp12_mul_montgomery(t1, t1, t0, p, mont, ctx)
+
+        /* mx3 = y2 */
+        || !fp12_frobenius_p2(mx3, mx2, p, ctx)
+        || !fp12_mul_montgomery(t0, t0, mx3, p, mont, ctx)
+        || !fp12_sqr_cyclotomic_montgomery(t1, t1, p, mont, ctx)
+        || !fp12_mul_montgomery(t1, t1, t0, p, mont, ctx)
+        || !fp12_sqr_cyclotomic_montgomery(t1, t1, p, mont, ctx)
+
+        || !fp12_frobenius_p6(mx3, m, p, ctx)
+        || !fp12_mul_montgomery(t0, t1, mx3, p, mont, ctx)
+
+        /* mx1 = m^p, mx2 = m^(p^2), mx3 = m^(p^3) */
+        || !fp12_frobenius_p1(mx1, m, p, ctx)
+        || !fp12_frobenius_p2(mx2, m, p, ctx)
+        || !fp12_frobenius_p1(mx3, mx2, p, ctx)
+        || !fp12_mul_montgomery(t1, t1, mx1, p, mont, ctx)
+        || !fp12_mul_montgomery(t1, t1, mx2, p, mont, ctx)
+        || !fp12_mul_montgomery(t1, t1, mx3, p, mont, ctx)
+
+        || !fp12_sqr_cyclotomic_montgomery(t0, t0, p, mont, ctx)
+        || !fp12_mul_montgomery(r, t0, t1, p, mont, ctx)){
+        BN_CTX_end(ctx);
+        return 0;
+    }
+    BN_CTX_end(ctx);
+    return 1;
+}
+
 
 static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 	const BIGNUM *a, const BIGNUM *p, BN_CTX *ctx)
 {
 	int ret = 0;
 	int i, n;
-	point_t T, Q1, Q2;
+	point_t T, Q1, Q2, Q_mont;
 	fp12_t g;
 	BIGNUM *xP_mont, *yP_mont;
 
@@ -2815,6 +3432,7 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 	point_init(&T, ctx);
 	point_init(&Q1, ctx);
 	point_init(&Q2, ctx);
+	point_init(&Q_mont, ctx);
 	fp12_init(g, ctx);
 	xP_mont = BN_CTX_get(ctx);
 	yP_mont = BN_CTX_get(ctx);
@@ -2823,42 +3441,49 @@ static int rate(fp12_t f, const point_t *Q, const BIGNUM *xP, const BIGNUM *yP,
 
 	BN_to_montgomery(xP_mont, xP, mont, ctx);
 	BN_to_montgomery(yP_mont, yP, mont, ctx);
+	point_to_montgomery(&Q_mont, Q, mont, ctx);
 
 	fp12_set_one(f);
-	point_copy(&T, Q);
+	point_copy(&T, &Q_mont);
+	fp12_to_montgomery(f, f, mont, ctx);
 
 	n = BN_num_bits(a);
 	for (i = n - 2; i >= 0; i--) {
-		point_to_montgomery(&T, mont, ctx);
 
 		point_dbl_eval_tangent(g, &T, xP_mont, yP_mont, p, mont, ctx);
 
-		point_from_montgomery(&T, mont, ctx);
-		
-		fp2_from_montgomery(g[2][0], g[2][0], mont, ctx);
-		fp2_from_montgomery(g[0][0], g[0][0], mont, ctx);
-		fp2_from_montgomery(g[0][1], g[0][1], mont, ctx);
+		//point_from_montgomery(&T, mont, ctx);
 
-		fp12_sqr(f, f, p, ctx);
-		fp12_mul(f, f, g, p, ctx);
+		fp12_sqr_montgomery(f, f, p, mont, ctx);
+		fp12_mul_montgomery(f, f, g, p, mont, ctx);
 
 		if (BN_is_bit_set(a, i)) {
 
-			point_add_eval_line(g, &T, Q, xP, yP, p, ctx);
-			fp12_mul(f, f, g, p, ctx);
+			point_add_eval_line_montgomery(g, &T, &Q_mont, xP_mont, yP_mont, p, mont, ctx);
+			fp12_mul_montgomery(f, f, g, p, mont, ctx);
 		}
+	
 	}
-    frobenius_simultaneously(&Q1, &Q2, Q, p, ctx);
 
-	point_add_eval_line(g, &T, &Q1, xP, yP, p, ctx);
-	fp12_mul(f, f, g, p, ctx);
+	//point_from_montgomery(&T, &T, mont, ctx);
+	//fp12_from_montgomery(f, f, mont, ctx);
+
+
+    frobenius_simultaneously(&Q1, &Q2, &Q_mont, p, ctx);
+
+	point_add_eval_line_montgomery(g, &T, &Q1, xP_mont, yP_mont, p, mont, ctx);
+	fp12_mul_montgomery(f, f, g, p, mont, ctx);
 
 	point_neg(&Q2, &Q2, p, ctx);
 
-	point_add_eval_line(g, &T, &Q2, xP, yP, p, ctx);
-	fp12_mul(f, f, g, p, ctx);
+	point_add_eval_line_montgomery(g, &T, &Q2, xP_mont, yP_mont, p, mont, ctx);
+	fp12_mul_montgomery(f, f, g, p, mont, ctx);
 
-	final_exp(f, f, p, ctx);
+	//fp12_from_montgomery(f, f, mont, ctx);
+
+	final_exp_montgomery(f, f, p, mont, ctx);
+
+	fp12_from_montgomery(f, f, mont, ctx);
 
 	BN_CTX_end(ctx);
 	return ret;
