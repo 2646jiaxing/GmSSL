@@ -509,9 +509,9 @@ static int fp2_inv_montgomery(fp2_t r, const fp2_t a, const BIGNUM *p, BN_MONT_C
 		BN_zero(r[0]);
 		/* r1 = -(2 * a1)^-1 */
 		if (!BN_mod_lshift1_quick(r[1], a[1], p)
-			|| !BN_to_montgomery(r[1], r[1], mont, ctx)
-			|| !BN_mod_inverse(r[1], r[1], p, ctx)
 			|| !BN_from_montgomery(r[1], r[1], mont, ctx)
+			|| !BN_mod_inverse(r[1], r[1], p, ctx)
+			|| !BN_to_montgomery(r[1], r[1], mont, ctx)
 			|| !BN_sub(r[1], p, r[1])) {
 			return 0;
 		}
@@ -520,9 +520,9 @@ static int fp2_inv_montgomery(fp2_t r, const fp2_t a, const BIGNUM *p, BN_MONT_C
 		/* r1 = 0 */
 		BN_zero(r[1]);
 		/* r0 = a0^-1 */
-		if (!BN_to_montgomery(r[0], a[0], mont, ctx)
+		if (!BN_from_montgomery(r[0], a[0], mont, ctx)
 			|| !BN_mod_inverse(r[0], r[0], p, ctx)
-			|| !BN_from_montgomery(r[0], r[0], mont, ctx)) {
+			|| !BN_to_montgomery(r[0], r[0], mont, ctx)) {
 			return 0;
 		}
 
@@ -538,9 +538,9 @@ static int fp2_inv_montgomery(fp2_t r, const fp2_t a, const BIGNUM *p, BN_MONT_C
 			|| !BN_mod_mul_montgomery(t, a[1], a[1], mont, ctx)
 			|| !BN_mod_lshift1_quick(t, t, p)
 			|| !BN_mod_add_quick(k, k, t, p)
-			|| !BN_to_montgomery(k, k, mont, ctx)
-			|| !BN_mod_inverse(k, k, p, ctx)
 			|| !BN_from_montgomery(k, k, mont, ctx)
+			|| !BN_mod_inverse(k, k, p, ctx)
+			|| !BN_to_montgomery(k, k, mont, ctx)
 
 			/* r[0] = a[0] * k, r[1] = -a[1] * k */
 			|| !BN_mod_mul_montgomery(r[0], a[0], k, mont, ctx)
@@ -1134,8 +1134,8 @@ static int fp4_inv_montgomery(fp4_t r, const fp4_t a, const BIGNUM *p, BN_MONT_C
 	fp2_init(t, ctx);
 	if (!fp2_init(k, ctx)
 		/* k = (a1^2 * u - a0^2)^-1 */
-		|| !fp2_sqr_u(k, a[1], p, ctx)
-		|| !fp2_sqr(t, a[0], p, ctx)
+		|| !fp2_sqr_u_montgomery(k, a[1], p, mont, ctx)
+		|| !fp2_sqr_montgomery(t, a[0], p, mont, ctx)
 		|| !fp2_sub(k, k, t, p)
 		|| !fp2_inv_montgomery(k, k, p, mont, ctx)
 
@@ -3354,9 +3354,7 @@ static int final_exp_montgomery(fp12_t r, const fp12_t a, const BIGNUM *p, BN_MO
     fp12_init(mx3, ctx);
 
     if (/* m = a^{(p^6-1)(p^2+1)} */
-		!fp12_from_montgomery(t0, a, mont, ctx)
-        || !fp12_inv(t0, t0, p, ctx)
-		|| !fp12_to_montgomery(t0, t0, mont, ctx)
+        !fp12_inv_montgomery(t0, a, p, mont, ctx)
         || !fp12_frobenius_p6(t1, a, p, ctx)
         || !fp12_mul_montgomery(t1, t1, t0, p, mont, ctx)
         || !fp12_frobenius_p2(m, t1, p, ctx)
